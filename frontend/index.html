@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>WoW Recorder</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, "Segoe UI", sans-serif; }
+    body { margin: 0; background: #14171d; color: #e6e8ec; }
+    header { padding: 14px 18px; border-bottom: 1px solid #2f3542; font-weight: 600; display:flex; align-items:center; gap:8px;}
+    .mark { color: #f3b73c; }
+    main { padding: 18px; display: flex; flex-direction: column; gap: 14px; max-width: 680px; }
+    .card { background: #1c2028; border: 1px solid #2f3542; border-radius: 8px; padding: 14px 16px; }
+    .row { display:flex; justify-content:space-between; gap:12px; padding:4px 0; }
+    .muted { color:#8b93a3; }
+    .pill { padding:2px 8px; border-radius:10px; font-size:12px; }
+    .on { background:#1e3a2a; color:#5fc48c; }
+    .off { background:#3a2a1e; color:#f3b73c; }
+    label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:#8b93a3; }
+    input { background:#232833; border:1px solid #2f3542; border-radius:6px; color:#e6e8ec; padding:8px 10px; font:inherit; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    button { font:inherit; border-radius:6px; padding:8px 14px; border:1px solid #2f3542; background:#232833; color:#e6e8ec; cursor:pointer; }
+    button.primary { background:#f3b73c; color:#1a1408; border-color:#f3b73c; font-weight:600; }
+    .actions { display:flex; gap:8px; justify-content:flex-end; }
+  </style>
+</head>
+<body>
+  <header><span class="mark">●REC</span> WoW Recorder <span class="muted" id="backend"></span></header>
+  <main>
+    <div class="card">
+      <div class="row"><span>Watching combat logs</span><span id="watching" class="pill off">—</span></div>
+      <div class="row"><span>Recording now</span><span id="recording" class="pill off">—</span></div>
+      <div class="row"><span class="muted">Log directory</span><span class="muted" id="logdir">—</span></div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 10px">Settings</h3>
+      <label>WoW Logs directory
+        <input id="log-directory" type="text" />
+      </label>
+      <label style="margin-top:10px">Recordings output directory
+        <input id="output-directory" type="text" />
+      </label>
+      <div class="grid" style="margin-top:10px">
+        <label>Width <input id="width" type="number" /></label>
+        <label>Height <input id="height" type="number" /></label>
+        <label>FPS <input id="fps" type="number" /></label>
+        <label>Bitrate (kbps) <input id="bitrate-kbps" type="number" /></label>
+        <label>Stop delay (s) <input id="stop-delay-secs" type="number" /></label>
+      </div>
+      <div class="actions" style="margin-top:12px">
+        <button id="open-folder">Open recordings folder</button>
+        <button id="save" class="primary">Save</button>
+      </div>
+    </div>
+  </main>
+  <script src="main.js"></script>
+</body>
+</html>
