@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set versions from tag
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          (Get-Content src-tauri/tauri.conf.json) -replace '"version": "[^"]*"', "`"version`": `"$v`"" | Set-Content src-tauri/tauri.conf.json
+          npm version $v --no-git-tag-version --allow-same-version
+
+      # Nightly is required for artifact/bindeps (libobs-recorder's
+      # extprocess_recorder). rust-toolchain.toml also pins nightly.
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend deps
+        run: npm install
+
+      # build-helper provisions the vendored OBS runtime (DLLs +
+      # extprocess_recorder.exe) into src-tauri/libobs during the build; the
+      # installer bundles it as a resource.
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "WoW Recorder ${{ github.ref_name }}"
+          releaseBody: |
+            Lightweight WoW Mythic+ recorder for Windows (x64). OBS runtime bundled.
+            Auto-updates from this repo's releases.
+          releaseDraft: false
+          prerelease: false
