@@ -3,7 +3,9 @@
   "productName": "WoW Recorder",
   "version": "0.1.0",
   "identifier": "dev.bigfattony.wow-recorder",
-  "build": { "frontendDist": "../frontend" },
+  "build": {
+    "frontendDist": "../frontend"
+  },
   "app": {
     "withGlobalTauri": true,
     "windows": [
@@ -24,6 +26,12 @@
   "bundle": {
     "active": true,
     "targets": "nsis",
-    "icon": ["icons/icon.ico", "icons/icon.png"]
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ],
+    "resources": {
+      "target/release/libobs/": "libobs/"
+    }
   }
 }

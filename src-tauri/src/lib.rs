@@ -71,13 +71,16 @@ struct Status {
 #[tauri::command]
 fn get_status(state: State<AppState>) -> Status {
     let config = state.config.lock().unwrap().clone();
-    let recording = state.controller.lock().unwrap().is_recording();
+    let (recording, backend) = {
+        let ctrl = state.controller.lock().unwrap();
+        (ctrl.is_recording(), ctrl.backend_name().to_string())
+    };
     Status {
         watching: state.watching.load(Ordering::Relaxed),
         recording,
         log_directory: config.log_directory.clone(),
         output_directory: config.output_directory.clone(),
-        backend: if cfg!(feature = "obs") { "obs".into() } else { "noop".into() },
+        backend,
     }
 }
 

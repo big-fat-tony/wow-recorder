@@ -11,6 +11,9 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# Provisions the vendored OBS DLLs + extprocess_recorder.exe into target/<profile>/libobs.
+build-helper = { git = "https://github.com/big-fat-tony/libobs-recorder.git" }
+libobs-recorder = { git = "https://github.com/big-fat-tony/libobs-recorder.git", artifact = "bin:extprocess_recorder" }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
@@ -25,11 +28,8 @@ log = "0.4"
 env_logger = "0.11"
 open = "5"
 dirs = "5"
-
-[features]
-# Real OBS capture via libobs-recorder is added behind this feature so the core
-# (combat-log detection, app, tray) builds and tests without the OBS toolchain.
-obs = []
+# Real OBS capture backend.
+libobs-recorder = { git = "https://github.com/big-fat-tony/libobs-recorder.git" }
 
 [profile.release]
 codegen-units = 1

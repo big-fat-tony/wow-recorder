@@ -16,11 +16,12 @@ Runs in the system tray and stays out of the way.
 - ✅ Combat-log tailing + Mythic+ detection (validated against live logs)
 - ✅ Recording state machine + JSON metadata sidecars
 - ✅ Tray app, config, single-instance
-- ⏳ OBS capture backend (libobs-recorder) — behind the `obs` feature
+- ✅ OBS capture backend (libobs-recorder) — records the WoW window out-of-process
 
-Until the OBS backend is wired, the app runs with a `noop` recorder that logs
-the start/stop timing and writes metadata but produces no video. Build with
-`--features obs` once the capture backend is in place.
+The OBS runtime (DLLs + `extprocess_recorder.exe`) is vendored by
+big-fat-tony/libobs-recorder and copied next to the app at build time by
+`build-helper`. Requires the **nightly** toolchain (artifact/bindeps). If the
+runtime is missing at runtime the app falls back to a `noop` recorder.
 
 ## Requirements
 
@@ -29,6 +30,8 @@ the start/stop timing and writes metadata but produces no video. Build with
 - Windows (capture backend is Windows-only).
 
 ## Building
+
+Requires the nightly Rust toolchain (pinned via `rust-toolchain.toml`).
 
 ```bash
 npm install

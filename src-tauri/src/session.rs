@@ -59,6 +59,10 @@ impl Controller {
         self.active.is_some()
     }
 
+    pub fn backend_name(&self) -> &'static str {
+        self.recorder.backend_name()
+    }
+
     pub fn handle(&mut self, event: LogEvent) {
         match event {
             LogEvent::ChallengeStart(start) => self.on_start(start),
