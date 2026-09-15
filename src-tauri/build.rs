@@ -1,11 +1,12 @@
 fn main() {
-    // Copy the vendored OBS runtime + extprocess_recorder.exe next to the built
-    // executable (target/<profile>/libobs). Runs before tauri_build so the
-    // resources exist when bundling.
+    // Provision the vendored OBS runtime + extprocess_recorder.exe.
+    //  1) next to the built exe (target/<profile>/libobs) so `cargo run`/dev works,
+    //  2) into src-tauri/libobs, a stable path the installer bundles as a resource.
     if let Err(e) = build_helper::Builder::new().build() {
-        // Don't hard-fail dev builds without the OBS toolchain wired; the app
-        // falls back to the noop recorder at runtime.
-        println!("cargo:warning=build-helper (OBS provisioning) failed: {e}");
+        println!("cargo:warning=build-helper (profile dir) failed: {e}");
+    }
+    if let Err(e) = build_helper::Builder::new().with_path(".").build() {
+        println!("cargo:warning=build-helper (resource dir) failed: {e}");
     }
     tauri_build::build();
 }

@@ -1,4 +1,5 @@
 const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 const $ = (id) => document.getElementById(id);
 
 async function refresh() {
@@ -34,3 +35,22 @@ $("open-folder").addEventListener("click", () => invoke("open_recordings_folder"
 loadConfig();
 refresh();
 setInterval(refresh, 2000);
+
+// --- Auto-update ---
+listen("update-available", ({ payload }) => {
+  document.getElementById("update-message").textContent = `Version ${payload.version} is available.`;
+  document.getElementById("update-banner").style.display = "flex";
+});
+listen("download-progress", ({ payload }) => {
+  if (payload.total) {
+    const pct = Math.round((payload.downloaded / payload.total) * 100);
+    document.getElementById("update-message").textContent = `Downloading update… ${pct}%`;
+  }
+});
+document.getElementById("update-now").addEventListener("click", () => {
+  document.getElementById("update-now").disabled = true;
+  invoke("install_update").catch((e) => alert(`Update failed: ${e}`));
+});
+document.getElementById("update-dismiss").addEventListener("click", () => {
+  document.getElementById("update-banner").style.display = "none";
+});

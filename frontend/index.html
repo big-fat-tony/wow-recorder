@@ -26,6 +26,14 @@
 </head>
 <body>
   <header><span class="mark">●REC</span> WoW Recorder <span class="muted" id="backend"></span></header>
+  <div id="update-banner" style="display:none; background:#232833; border-bottom:1px solid #f3b73c; padding:10px 18px; align-items:center; gap:12px;">
+    <span id="update-message">An update is available.</span>
+    <span style="margin-left:auto; display:flex; gap:8px;">
+      <button id="update-now" class="primary">Update &amp; restart</button>
+      <button id="update-dismiss">Later</button>
+    </span>
+  </div>
+
   <main>
     <div class="card">
       <div class="row"><span>Watching combat logs</span><span id="watching" class="pill off">—</span></div>

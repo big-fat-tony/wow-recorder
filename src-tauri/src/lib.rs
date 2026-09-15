@@ -9,10 +9,27 @@ use std::sync::{Arc, Mutex};
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+
+use serde::Serialize;
 
 use config::Config;
 use session::Controller;
+
+/// Holds an update found at startup until the user chooses to install it.
+pub struct PendingUpdate(pub Mutex<Option<tauri_plugin_updater::Update>>);
+
+#[derive(Clone, Serialize)]
+struct UpdateAvailable {
+    version: String,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadProgress {
+    downloaded: u64,
+    total: Option<u64>,
+}
 
 pub struct AppState {
     controller: Arc<Mutex<Controller>>,
@@ -139,6 +156,37 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Download and install the update found at startup, then relaunch.
+#[tauri::command]
+async fn install_update(app: AppHandle, state: State<'_, PendingUpdate>) -> Result<(), String> {
+    let update = state.0.lock().unwrap().take().ok_or("no pending update")?;
+    let mut downloaded: u64 = 0;
+    let app_clone = app.clone();
+    update
+        .download_and_install(
+            move |chunk, total| {
+                downloaded += chunk as u64;
+                let _ = app_clone.emit("download-progress", DownloadProgress { downloaded, total });
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    app.restart();
+}
+
+async fn check_for_update(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri_plugin_updater::UpdaterExt;
+    let Some(update) = app.updater()?.check().await? else {
+        return Ok(());
+    };
+    log::info!("update available: {} -> {}", update.current_version, update.version);
+    let version = update.version.clone();
+    app.state::<PendingUpdate>().0.lock().unwrap().replace(update);
+    app.emit("update-available", UpdateAvailable { version })?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -158,18 +206,28 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_main_window(app);
         }))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(state)
+        .manage(PendingUpdate(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             get_status,
             get_config,
             set_config,
             open_recordings_folder,
+            install_update,
         ])
         .setup(move |app| {
             build_tray(app.handle())?;
             let state = app.state::<AppState>();
             let log_dir = PathBuf::from(&config.log_directory);
             start_watcher(&state, log_dir);
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = check_for_update(handle).await {
+                    log::warn!("update check failed: {e}");
+                }
+            });
             Ok(())
         })
         .on_window_event(|window, event| {
