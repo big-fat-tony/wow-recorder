@@ -4,65 +4,111 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>WoW Recorder</title>
-  <style>
-    :root { color-scheme: dark; font-family: system-ui, "Segoe UI", sans-serif; }
-    body { margin: 0; background: #14171d; color: #e6e8ec; }
-    header { padding: 14px 18px; border-bottom: 1px solid #2f3542; font-weight: 600; display:flex; align-items:center; gap:8px;}
-    .mark { color: #f3b73c; }
-    main { padding: 18px; display: flex; flex-direction: column; gap: 14px; max-width: 680px; }
-    .card { background: #1c2028; border: 1px solid #2f3542; border-radius: 8px; padding: 14px 16px; }
-    .row { display:flex; justify-content:space-between; gap:12px; padding:4px 0; }
-    .muted { color:#8b93a3; }
-    .pill { padding:2px 8px; border-radius:10px; font-size:12px; }
-    .on { background:#1e3a2a; color:#5fc48c; }
-    .off { background:#3a2a1e; color:#f3b73c; }
-    label { display:flex; flex-direction:column; gap:4px; font-size:13px; color:#8b93a3; }
-    input { background:#232833; border:1px solid #2f3542; border-radius:6px; color:#e6e8ec; padding:8px 10px; font:inherit; }
-    .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    button { font:inherit; border-radius:6px; padding:8px 14px; border:1px solid #2f3542; background:#232833; color:#e6e8ec; cursor:pointer; }
-    button.primary { background:#f3b73c; color:#1a1408; border-color:#f3b73c; font-weight:600; }
-    .actions { display:flex; gap:8px; justify-content:flex-end; }
-    #update-banner { display:flex; align-items:center; gap:12px; background:#232833; border-bottom:1px solid #f3b73c; padding:10px 18px; }
-    #update-banner[hidden] { display:none !important; }
-  </style>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header><span class="mark">●REC</span> WoW Recorder <span class="muted" id="version"></span> <span class="muted" id="backend"></span></header>
+  <div class="topbar">
+    <span id="rec-dot" class="rec-dot"></span>
+    <span class="brand">WoW Recorder</span>
+    <span id="version" class="ver"></span>
+    <span class="spacer"></span>
+    <span id="backend" class="chip">backend: —</span>
+  </div>
+
   <div id="update-banner" hidden>
-    <span id="update-message">An update is available.</span>
-    <span style="margin-left:auto; display:flex; gap:8px;">
-      <button id="update-now" class="primary">Update &amp; restart</button>
-      <button id="update-dismiss">Later</button>
-    </span>
+    <span id="update-message" class="grow">An update is available.</span>
+    <button id="update-now" class="primary small">Update &amp; restart</button>
+    <button id="update-dismiss" class="small">Later</button>
   </div>
 
   <main>
+    <!-- Status -->
     <div class="card">
-      <div class="row"><span>Watching combat logs</span><span id="watching" class="pill off">—</span></div>
-      <div class="row"><span>Recording now</span><span id="recording" class="pill off">—</span></div>
-      <div class="row"><span class="muted">Log directory</span><span class="muted" id="logdir">—</span></div>
+      <div class="status-hero">
+        <div id="status-badge" class="status-badge">🎬</div>
+        <div>
+          <div id="status-title" class="status-title">Idle</div>
+          <div id="status-sub" class="status-sub">Waiting for a Mythic+ to start…</div>
+        </div>
+      </div>
+      <div class="rows">
+        <div class="row">
+          <span class="k">Watching combat logs</span>
+          <span id="watching" class="pill off">—</span>
+        </div>
+        <div class="row">
+          <span class="k">Log directory</span>
+          <span id="logdir" class="v">—</span>
+        </div>
+        <div class="row">
+          <span class="k">Recordings folder</span>
+          <span id="outdir" class="v">—</span>
+        </div>
+      </div>
     </div>
+
+    <!-- Folders -->
     <div class="card">
-      <h3 style="margin:0 0 10px">Settings</h3>
-      <label>WoW Logs directory
-        <input id="log-directory" type="text" />
-      </label>
-      <label style="margin-top:10px">Recordings output directory
-        <input id="output-directory" type="text" />
-      </label>
-      <div class="grid" style="margin-top:10px">
-        <label>Width <input id="width" type="number" /></label>
-        <label>Height <input id="height" type="number" /></label>
-        <label>FPS <input id="fps" type="number" /></label>
-        <label>Bitrate (kbps) <input id="bitrate-kbps" type="number" /></label>
-        <label>Stop delay (s) <input id="stop-delay-secs" type="number" /></label>
+      <h2>Folders</h2>
+      <div class="field">
+        <label>WoW Logs directory</label>
+        <div class="input-row">
+          <input id="log-directory" type="text" placeholder="…\World of Warcraft\_retail_\Logs" />
+          <button id="log-browse" class="small">Browse…</button>
+          <button id="log-detect" class="small">Detect</button>
+        </div>
+        <div class="hint">Advanced combat logging must be on in WoW (<code>/combatlog</code>) for Mythic+ runs to be detected.</div>
       </div>
-      <div class="actions" style="margin-top:12px">
-        <button id="open-folder">Open recordings folder</button>
-        <button id="save" class="primary">Save</button>
+      <div class="field">
+        <label>Recordings output directory</label>
+        <div class="input-row">
+          <input id="output-directory" type="text" placeholder="…\Videos\WoW Recorder" />
+          <button id="out-browse" class="small">Browse…</button>
+        </div>
       </div>
+    </div>
+
+    <!-- Recording -->
+    <div class="card">
+      <h2>Recording</h2>
+      <div class="row" style="border:0; padding:0 0 12px;">
+        <span class="k">Game resolution</span>
+        <span id="game-res" class="v">detecting…</span>
+      </div>
+      <div class="grid">
+        <div class="field">
+          <label>Output size</label>
+          <select id="output-mode">
+            <option value="raw">Raw — match game</option>
+            <option value="1440p">1440p (scaled)</option>
+            <option value="1080p">1080p (scaled)</option>
+            <option value="720p">720p (scaled)</option>
+          </select>
+        </div>
+        <div class="field"><label>FPS</label><input id="fps" type="number" min="15" max="120" /></div>
+      </div>
+      <div class="field">
+        <label>Quality <span id="quality-val" class="ver"></span></label>
+        <input id="quality" type="range" min="0" max="100" step="5" />
+        <div class="hint">Higher quality = larger files. Uses constant-quality encoding (CQP).</div>
+      </div>
+      <div class="grid">
+        <div class="field"><label>Stop delay (s)</label><input id="stop-delay-secs" type="number" min="0" max="60" /></div>
+        <div class="field toggle" style="align-self:end;">
+          <span class="label">Record audio</span>
+          <label class="switch"><input id="record-audio" type="checkbox" /><span class="track"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <button id="open-folder">Open recordings folder</button>
+      <span class="spacer"></span>
+      <span id="saved" class="saved">Saved ✓</span>
+      <button id="save" class="primary">Save settings</button>
     </div>
   </main>
+
   <script src="main.js"></script>
 </body>
 </html>

@@ -12,10 +12,10 @@
       {
         "label": "main",
         "title": "WoW Recorder",
-        "width": 720,
-        "height": 520,
+        "width": 760,
+        "height": 880,
         "minWidth": 560,
-        "minHeight": 400,
+        "minHeight": 520,
         "visible": true
       }
     ],

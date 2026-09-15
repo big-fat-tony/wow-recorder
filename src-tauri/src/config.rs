@@ -4,6 +4,9 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+/// Fallback capture resolution when the WoW window can't be measured.
+pub const FALLBACK_RESOLUTION: (u32, u32) = (1920, 1080);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Config {
@@ -11,11 +14,11 @@ pub struct Config {
     pub log_directory: String,
     /// Where recordings and their metadata sidecars are written.
     pub output_directory: String,
-    pub width: u32,
-    pub height: u32,
     pub fps: u32,
-    /// Video bitrate in kbps (CBR).
-    pub bitrate_kbps: u32,
+    /// 0–100, higher = better quality (maps to the encoder's CQP).
+    pub quality: u32,
+    /// Output downscale: "raw" (match the game), "1440p", "1080p", "720p".
+    pub output_mode: String,
     /// Capture desktop + game audio.
     pub record_audio: bool,
     /// Seconds to keep recording after `CHALLENGE_MODE_END` (loot/scoreboard).
@@ -27,10 +30,9 @@ impl Default for Config {
         Self {
             log_directory: String::new(),
             output_directory: default_output_dir().to_string_lossy().into_owned(),
-            width: 1920,
-            height: 1080,
             fps: 30,
-            bitrate_kbps: 12_000,
+            quality: 70,
+            output_mode: "1080p".into(),
             record_audio: true,
             stop_delay_secs: 5,
         }
@@ -75,5 +77,27 @@ impl Config {
 
     pub fn output_dir(&self) -> PathBuf {
         PathBuf::from(&self.output_directory)
+    }
+
+    /// Encoder CQP value (lower = better). Quality 0→32, 100→16.
+    pub fn cqp(&self) -> u32 {
+        let q = self.quality.min(100);
+        32 - (q * 16 / 100)
+    }
+
+    /// Output resolution given the captured input resolution. Never upscales.
+    pub fn output_resolution(&self, input: (u32, u32)) -> (u32, u32) {
+        let (iw, ih) = input;
+        let target_h = match self.output_mode.as_str() {
+            "1440p" => 1440,
+            "1080p" => 1080,
+            "720p" => 720,
+            _ => return input, // "raw"
+        };
+        if ih <= target_h || ih == 0 {
+            return input;
+        }
+        let ow = ((iw as f64 * target_h as f64 / ih as f64).round() as u32) & !1;
+        (ow.max(2), target_h)
     }
 }

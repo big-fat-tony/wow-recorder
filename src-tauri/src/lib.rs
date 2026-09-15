@@ -2,6 +2,7 @@ mod combatlog;
 mod config;
 mod recorder;
 mod session;
+mod window;
 
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -121,6 +122,30 @@ fn set_config(state: State<AppState>, config: Config) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn pick_directory(start: Option<String>) -> Option<String> {
+    let mut dialog = rfd::AsyncFileDialog::new().set_title("Choose a folder");
+    if let Some(dir) = start.filter(|d| std::path::Path::new(d).is_dir()) {
+        dialog = dialog.set_directory(dir);
+    }
+    dialog.pick_folder().await.map(|f| f.path().to_string_lossy().into_owned())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WowResolution { width: u32, height: u32 }
+
+/// The WoW window's current client size, if the game is running.
+#[tauri::command]
+fn get_wow_resolution() -> Option<WowResolution> {
+    window::detect_wow_resolution().map(|(width, height)| WowResolution { width, height })
+}
+
+#[tauri::command]
+fn detect_log_directory() -> Option<String> {
+    combatlog::detect_log_directory().map(|p| p.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 fn open_recordings_folder(state: State<AppState>) -> Result<(), String> {
     let dir = state.config.lock().unwrap().output_dir();
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -217,6 +242,9 @@ pub fn run() {
             get_config,
             set_config,
             open_recordings_folder,
+            pick_directory,
+            detect_log_directory,
+            get_wow_resolution,
             install_update,
         ])
         .setup(move |app| {

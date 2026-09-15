@@ -8,6 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use libobs_recorder::settings::{AudioSource, Framerate, RateControl, RecorderSettings, Resolution, Window};
+use crate::config::FALLBACK_RESOLUTION;
+use crate::window::detect_wow_resolution;
 use libobs_recorder::Recorder as ObsInner;
 
 use crate::config::Config;
@@ -65,19 +67,21 @@ impl Recorder for ObsRecorder {
         if self.current.is_some() {
             return Err(Error::Busy);
         }
-        let resolution: Resolution = Resolution::new(config.width, config.height);
+        let input = detect_wow_resolution().unwrap_or(FALLBACK_RESOLUTION);
+        let output_res = config.output_resolution(input);
+        log::info!("capture input {input:?} -> output {output_res:?}, cqp {}", config.cqp());
         let mut settings = RecorderSettings::new(
             Window::new(
                 WOW_WINDOW_TITLE,
                 Some(WOW_WINDOW_CLASS.into()),
                 Some(WOW_WINDOW_PROCESS.into()),
             ),
-            resolution,
-            resolution,
+            Resolution::new(input.0, input.1),
+            Resolution::new(output_res.0, output_res.1),
             output,
         );
         settings.set_framerate(Framerate::new(config.fps, 1));
-        settings.set_rate_control(RateControl::CBR(config.bitrate_kbps));
+        settings.set_rate_control(RateControl::CQP(config.cqp()));
         settings.set_audio_source(if config.record_audio { AudioSource::ALL } else { AudioSource::NONE });
 
         let mut recorder = ObsInner::new_with_paths(Some(&self.extprocess), None, None, None)
