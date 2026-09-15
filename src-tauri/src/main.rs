@@ -1,5 +1,5 @@
-// Prevents an additional console window on Windows in release builds.
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// No console window on Windows; logs go to a file (see lib.rs).
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 fn main() {
     wow_recorder_lib::run()

@@ -215,9 +215,34 @@ async fn check_for_update(app: AppHandle) -> Result<(), Box<dyn std::error::Erro
     Ok(())
 }
 
+/// The rolling log file path (next to the config).
+pub fn log_path() -> std::path::PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("wow-recorder")
+        .join("wow-recorder.log")
+}
+
+fn init_logging() {
+    use std::io::Write;
+    let path = log_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // Truncate on start so the file doesn't grow without bound across runs.
+    let target: Box<dyn Write + Send> = match std::fs::File::create(&path) {
+        Ok(f) => Box::new(f),
+        Err(_) => Box::new(std::io::stderr()),
+    };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .target(env_logger::Target::Pipe(target))
+        .init();
+    log::info!("wow-recorder {} starting", env!("CARGO_PKG_VERSION"));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    init_logging();
 
     let config = Config::load();
     let recorder = recorder::make_recorder();
