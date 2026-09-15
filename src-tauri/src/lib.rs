@@ -202,6 +202,7 @@ async fn install_update(app: AppHandle, state: State<'_, PendingUpdate>) -> Resu
     app.restart();
 }
 
+#[cfg_attr(debug_assertions, allow(dead_code))]
 async fn check_for_update(app: AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     use tauri_plugin_updater::UpdaterExt;
     let Some(update) = app.updater()?.check().await? else {
@@ -252,12 +253,16 @@ pub fn run() {
             let state = app.state::<AppState>();
             let log_dir = PathBuf::from(&config.log_directory);
             start_watcher(&state, log_dir);
-            let handle = app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = check_for_update(handle).await {
-                    log::warn!("update check failed: {e}");
-                }
-            });
+            // Only release builds check for updates; dev builds run as-is.
+            #[cfg(not(debug_assertions))]
+            {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = check_for_update(handle).await {
+                        log::warn!("update check failed: {e}");
+                    }
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
