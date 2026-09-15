@@ -83,6 +83,7 @@ struct Status {
     log_directory: String,
     output_directory: String,
     backend: String,
+    version: String,
 }
 
 #[tauri::command]
@@ -98,6 +99,7 @@ fn get_status(state: State<AppState>) -> Status {
         log_directory: config.log_directory.clone(),
         output_directory: config.output_directory.clone(),
         backend,
+        version: env!("CARGO_PKG_VERSION").to_string(),
     }
 }
 

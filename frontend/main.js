@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 
 async function refresh() {
   const s = await invoke("get_status");
+  if (s.version) document.getElementById("version").textContent = `v${s.version}`;
   $("backend").textContent = `· backend: ${s.backend}`;
   $("watching").textContent = s.watching ? "yes" : "no";
   $("watching").className = "pill " + (s.watching ? "on" : "off");
@@ -38,8 +39,9 @@ setInterval(refresh, 2000);
 
 // --- Auto-update ---
 listen("update-available", ({ payload }) => {
+  if (!payload || !payload.version) return; // never show without a real version
   document.getElementById("update-message").textContent = `Version ${payload.version} is available.`;
-  document.getElementById("update-banner").style.display = "flex";
+  document.getElementById("update-banner").hidden = false;
 });
 listen("download-progress", ({ payload }) => {
   if (payload.total) {
@@ -50,12 +52,10 @@ listen("download-progress", ({ payload }) => {
 document.getElementById("update-now").addEventListener("click", () => {
   document.getElementById("update-now").disabled = true;
   invoke("install_update").catch((e) => {
-    // No real pending update (e.g. a stale check right after a release): just
-    // dismiss the banner rather than alarm the user.
     console.warn("update install failed:", e);
-    document.getElementById("update-banner").style.display = "none";
+    document.getElementById("update-banner").hidden = true;
   });
 });
 document.getElementById("update-dismiss").addEventListener("click", () => {
-  document.getElementById("update-banner").style.display = "none";
+  document.getElementById("update-banner").hidden = true;
 });

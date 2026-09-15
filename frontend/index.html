@@ -22,11 +22,13 @@
     button { font:inherit; border-radius:6px; padding:8px 14px; border:1px solid #2f3542; background:#232833; color:#e6e8ec; cursor:pointer; }
     button.primary { background:#f3b73c; color:#1a1408; border-color:#f3b73c; font-weight:600; }
     .actions { display:flex; gap:8px; justify-content:flex-end; }
+    #update-banner { display:flex; align-items:center; gap:12px; background:#232833; border-bottom:1px solid #f3b73c; padding:10px 18px; }
+    #update-banner[hidden] { display:none !important; }
   </style>
 </head>
 <body>
-  <header><span class="mark">●REC</span> WoW Recorder <span class="muted" id="backend"></span></header>
-  <div id="update-banner" style="display:none; background:#232833; border-bottom:1px solid #f3b73c; padding:10px 18px; align-items:center; gap:12px;">
+  <header><span class="mark">●REC</span> WoW Recorder <span class="muted" id="version"></span> <span class="muted" id="backend"></span></header>
+  <div id="update-banner" hidden>
     <span id="update-message">An update is available.</span>
     <span style="margin-left:auto; display:flex; gap:8px;">
       <button id="update-now" class="primary">Update &amp; restart</button>

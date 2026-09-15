@@ -17,6 +17,7 @@ jobs:
         run: |
           $v = "${{ github.ref_name }}".TrimStart("v")
           (Get-Content src-tauri/tauri.conf.json) -replace '"version": "[^"]*"', "`"version`": `"$v`"" | Set-Content src-tauri/tauri.conf.json
+          (Get-Content src-tauri/Cargo.toml) -replace '(?m)^version = "[^"]*"', "version = `"$v`"" | Set-Content src-tauri/Cargo.toml
           npm version $v --no-git-tag-version --allow-same-version
 
       # Nightly is required for artifact/bindeps (libobs-recorder's
