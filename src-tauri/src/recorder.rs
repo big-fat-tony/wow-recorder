@@ -82,7 +82,13 @@ impl Recorder for ObsRecorder {
         );
         settings.set_framerate(Framerate::new(config.fps, 1));
         settings.set_rate_control(RateControl::CQP(config.cqp()));
-        settings.set_audio_source(if config.record_audio { AudioSource::ALL } else { AudioSource::NONE });
+        let audio = match config.audio_mode.as_str() {
+            "off" => AudioSource::NONE,
+            "desktop_mic" => AudioSource::ALL,   // desktop output + microphone
+            "game" => AudioSource::APPLICATION,  // only the WoW window's audio
+            _ => AudioSource::SYSTEM,             // "desktop": default output, no mic
+        };
+        settings.set_audio_source(audio);
 
         let mut recorder = ObsInner::new_with_paths(Some(&self.extprocess), None, None, None)
             .map_err(|e| Error::Backend(format!("init: {e:?}")))?;

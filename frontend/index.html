@@ -94,9 +94,14 @@
       </div>
       <div class="grid">
         <div class="field"><label>Stop delay (s)</label><input id="stop-delay-secs" type="number" min="0" max="60" /></div>
-        <div class="field toggle" style="align-self:end;">
-          <span class="label">Record audio</span>
-          <label class="switch"><input id="record-audio" type="checkbox" /><span class="track"></span></label>
+        <div class="field">
+          <label>Audio</label>
+          <select id="audio-mode">
+            <option value="desktop">Desktop — game + apps, no mic</option>
+            <option value="game">Game only</option>
+            <option value="desktop_mic">Desktop + mic</option>
+            <option value="off">Off</option>
+          </select>
         </div>
       </div>
     </div>

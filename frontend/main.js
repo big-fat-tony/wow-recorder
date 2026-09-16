@@ -37,6 +37,7 @@ const FIELDS = {
   "log-directory": "logDirectory",
   "output-directory": "outputDirectory",
   "output-mode": "outputMode",
+  "audio-mode": "audioMode",
   fps: "fps",
   "stop-delay-secs": "stopDelaySecs",
 };
@@ -44,7 +45,6 @@ const FIELDS = {
 async function loadConfig() {
   const c = await invoke("get_config");
   for (const [id, key] of Object.entries(FIELDS)) $(id).value = c[key];
-  $("record-audio").checked = !!c.recordAudio;
   $("quality").value = c.quality;
   updateQualityLabel();
 }
@@ -69,7 +69,7 @@ async function saveConfig() {
   c.fps = +$("fps").value;
   c.quality = +$("quality").value;
   c.stopDelaySecs = +$("stop-delay-secs").value;
-  c.recordAudio = $("record-audio").checked;
+  c.audioMode = $("audio-mode").value;
   await invoke("set_config", { config: c });
   const saved = $("saved");
   saved.classList.add("show");

@@ -19,8 +19,8 @@ pub struct Config {
     pub quality: u32,
     /// Output downscale: "raw" (match the game), "1440p", "1080p", "720p".
     pub output_mode: String,
-    /// Capture desktop + game audio.
-    pub record_audio: bool,
+    /// Audio capture: "off" | "desktop" (no mic) | "desktop_mic" | "game".
+    pub audio_mode: String,
     /// Seconds to keep recording after `CHALLENGE_MODE_END` (loot/scoreboard).
     pub stop_delay_secs: u64,
 }
@@ -33,7 +33,7 @@ impl Default for Config {
             fps: 30,
             quality: 70,
             output_mode: "1080p".into(),
-            record_audio: true,
+            audio_mode: "desktop".into(),
             stop_delay_secs: 5,
         }
     }
