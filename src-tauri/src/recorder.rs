@@ -7,7 +7,9 @@
 
 use std::path::{Path, PathBuf};
 
-use libobs_recorder::settings::{AudioSource, Framerate, RateControl, RecorderSettings, Resolution, Window};
+use libobs_recorder::settings::{
+    AudioSource, Corner, Framerate, RateControl, RecorderSettings, Resolution, TextOverlay, Window,
+};
 use crate::config::FALLBACK_RESOLUTION;
 use crate::window::detect_wow_resolution;
 use libobs_recorder::Recorder as ObsInner;
@@ -32,8 +34,11 @@ pub enum Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 pub trait Recorder: Send {
-    /// Begin capturing the WoW window to `output` (an `.mp4` path).
-    fn start(&mut self, output: &Path, config: &Config) -> Result<()>;
+    /// Begin capturing the WoW window to `output` (an `.mp4` path). With
+    /// `overlay_text`, a text overlay showing it is burned into the corner.
+    fn start(&mut self, output: &Path, config: &Config, overlay_text: Option<&str>) -> Result<()>;
+    /// Replace the overlay text while recording.
+    fn set_overlay_text(&mut self, text: &str) -> Result<()>;
     /// Stop the current capture and finalize the file.
     fn stop(&mut self) -> Result<()>;
     /// A short name for logging.
@@ -62,8 +67,11 @@ impl ObsRecorder {
     }
 }
 
+/// Overlay font size as a fraction of the output height (~28 px at 1080p).
+const OVERLAY_FONT_SCALE: f64 = 0.026;
+
 impl Recorder for ObsRecorder {
-    fn start(&mut self, output: &Path, config: &Config) -> Result<()> {
+    fn start(&mut self, output: &Path, config: &Config, overlay_text: Option<&str>) -> Result<()> {
         if self.current.is_some() {
             return Err(Error::Busy);
         }
@@ -89,6 +97,10 @@ impl Recorder for ObsRecorder {
             _ => AudioSource::SYSTEM,             // "desktop": default output, no mic
         };
         settings.set_audio_source(audio);
+        if let Some(text) = overlay_text {
+            let font_size = ((output_res.1 as f64 * OVERLAY_FONT_SCALE).round() as u32).max(12);
+            settings.set_text_overlay(TextOverlay::new(text, font_size, Corner::TopLeft));
+        }
 
         let mut recorder = ObsInner::new_with_paths(Some(&self.extprocess), None, None, None)
             .map_err(|e| Error::Backend(format!("init: {e:?}")))?;
@@ -102,6 +114,11 @@ impl Recorder for ObsRecorder {
         recorder.start_recording().map_err(|e| Error::Backend(format!("start: {e:?}")))?;
         self.current = Some(recorder);
         Ok(())
+    }
+
+    fn set_overlay_text(&mut self, text: &str) -> Result<()> {
+        let recorder = self.current.as_mut().ok_or(Error::Idle)?;
+        recorder.set_overlay_text(text).map_err(|e| Error::Backend(format!("overlay: {e:?}")))
     }
 
     fn stop(&mut self) -> Result<()> {
@@ -126,12 +143,19 @@ pub struct NoopRecorder {
 }
 
 impl Recorder for NoopRecorder {
-    fn start(&mut self, output: &Path, _config: &Config) -> Result<()> {
+    fn start(&mut self, output: &Path, _config: &Config, _overlay_text: Option<&str>) -> Result<()> {
         if self.running {
             return Err(Error::Busy);
         }
         self.running = true;
         log::warn!("NoopRecorder: no OBS runtime; not capturing {}", output.display());
+        Ok(())
+    }
+
+    fn set_overlay_text(&mut self, _text: &str) -> Result<()> {
+        if !self.running {
+            return Err(Error::Idle);
+        }
         Ok(())
     }
 
@@ -156,5 +180,32 @@ pub fn make_recorder() -> Box<dyn Recorder> {
             log::warn!("OBS backend unavailable ({e}); using noop recorder");
             Box::new(NoopRecorder::default())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Real-OBS smoke test: records ~3 s (a black canvas if WoW isn't running)
+    /// with the overlay clock ticking, then leaves the file for inspection.
+    /// Needs the OBS runtime next to the test binary: copy `target/debug/libobs`
+    /// into the directory of the `.exe` that `cargo test` prints, then run
+    /// `cargo test obs_overlay_smoke -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn obs_overlay_smoke() {
+        let out = std::env::temp_dir().join("wow-recorder-overlay-smoke.mp4");
+        let _ = std::fs::remove_file(&out);
+        let cfg = Config { output_mode: "raw".into(), audio_mode: "off".into(), ..Config::default() };
+        let mut rec = ObsRecorder::new().expect("OBS runtime next to the test exe");
+        rec.start(&out, &cfg, Some("0:00")).unwrap();
+        for i in 1..=3 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            rec.set_overlay_text(&format!("0:0{i}")).unwrap();
+        }
+        rec.stop().unwrap();
+        assert!(out.is_file(), "no output at {}", out.display());
+        println!("wrote {}", out.display());
     }
 }

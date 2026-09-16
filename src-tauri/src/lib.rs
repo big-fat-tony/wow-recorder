@@ -1,5 +1,6 @@
 mod combatlog;
 mod config;
+mod mp4chapters;
 mod recorder;
 mod session;
 mod window;
@@ -73,6 +74,19 @@ fn start_watcher(state: &AppState, log_dir: PathBuf) {
             log::error!("combat-log watcher stopped: {e}");
         }
         watching.store(false, Ordering::Relaxed);
+    });
+}
+
+/// Refresh the run-clock overlay once a second while recording. Sleeps until
+/// the next whole second of run time so the burned-in clock flips on the tick.
+fn start_overlay_ticker(controller: Arc<Mutex<Controller>>) {
+    std::thread::spawn(move || loop {
+        let wait = {
+            let Ok(mut ctrl) = controller.lock() else { break };
+            ctrl.tick();
+            ctrl.ms_to_next_tick()
+        };
+        std::thread::sleep(std::time::Duration::from_millis(wait.clamp(50, 1000)));
     });
 }
 
@@ -278,6 +292,7 @@ pub fn run() {
             let state = app.state::<AppState>();
             let log_dir = PathBuf::from(&config.log_directory);
             start_watcher(&state, log_dir);
+            start_overlay_ticker(state.controller.clone());
             // Only release builds check for updates; dev builds run as-is.
             #[cfg(not(debug_assertions))]
             {

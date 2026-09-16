@@ -23,6 +23,9 @@ pub struct Config {
     pub audio_mode: String,
     /// Seconds to keep recording after `CHALLENGE_MODE_END` (loot/scoreboard).
     pub stop_delay_secs: u64,
+    /// Burn the run clock (`m:ss` since `CHALLENGE_MODE_START`) into the video
+    /// so a timestamp from an analyzer can be found in the footage.
+    pub timer_overlay: bool,
 }
 
 impl Default for Config {
@@ -35,6 +38,7 @@ impl Default for Config {
             output_mode: "1080p".into(),
             audio_mode: "desktop".into(),
             stop_delay_secs: 5,
+            timer_overlay: true,
         }
     }
 }

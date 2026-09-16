@@ -3,13 +3,15 @@
 //! WoW writes `WoWCombatLog*.txt` into `<install>/<flavor>/Logs`. With advanced
 //! combat logging on, a Mythic+ run brackets its events with
 //! `CHALLENGE_MODE_START` and `CHALLENGE_MODE_END`. We tail the newest log file
-//! and emit those two events; the recorder starts/stops on them.
+//! and emit those two events (the recorder starts/stops on them) plus player
+//! `UNIT_DIED` events, which become chapter markers in the recording.
 
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime};
 use regex::Regex;
 use serde::Serialize;
 
@@ -42,11 +44,56 @@ pub struct ChallengeEnd {
     pub log_timestamp: String,
 }
 
+/// A player died (feign death excluded).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnitDied {
+    /// `Name-Realm` as logged.
+    pub name: String,
+    pub guid: String,
+    pub log_timestamp: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum LogEvent {
     ChallengeStart(ChallengeStart),
     ChallengeEnd(ChallengeEnd),
+    UnitDied(UnitDied),
+}
+
+/// Parse a combat-log timestamp into local naive time. Handles both the
+/// classic `9/14 20:01:05.123` form (no year; taken from `now`) and the newer
+/// `9/14/2026 20:01:05.123-4` form (year + UTC offset suffix, which is dropped
+/// because the time itself is already local).
+pub fn parse_log_timestamp(ts: &str, now: NaiveDateTime) -> Option<NaiveDateTime> {
+    let (date, time) = ts.trim().split_once(' ')?;
+    let mut parts = date.split('/');
+    let month: u32 = parts.next()?.parse().ok()?;
+    let day: u32 = parts.next()?.parse().ok()?;
+    let year: Option<i32> = parts.next().and_then(|y| y.parse().ok());
+
+    // `HH:MM:SS.mmm` possibly followed by a `-4` / `+2` UTC offset.
+    let dot = time.find('.')?;
+    let end = time[dot + 1..]
+        .find(|c: char| !c.is_ascii_digit())
+        .map(|i| dot + 1 + i)
+        .unwrap_or(time.len());
+    let time = NaiveTime::parse_from_str(&time[..end], "%H:%M:%S%.f").ok()?;
+
+    match year {
+        Some(y) => Some(NaiveDate::from_ymd_opt(y, month, day)?.and_time(time)),
+        None => {
+            // No year in the log: assume the current one, but a timestamp far in
+            // the future means the log rolled over New Year.
+            let guess = NaiveDate::from_ymd_opt(now.year(), month, day)?.and_time(time);
+            if guess - now > chrono::Duration::days(1) {
+                Some(NaiveDate::from_ymd_opt(now.year() - 1, month, day)?.and_time(time))
+            } else {
+                Some(guess)
+            }
+        }
+    }
 }
 
 /// Split a combat-log CSV argument list, respecting `"..."` quoting and
@@ -92,7 +139,7 @@ fn parse_affixes(s: &str) -> Vec<i64> {
 
 /// Parse one line into a Mythic+ event, if it is one.
 pub fn parse_line(line: &str) -> Option<LogEvent> {
-    if !line.contains("CHALLENGE_MODE_") {
+    if !line.contains("CHALLENGE_MODE_") && !line.contains("UNIT_DIED") {
         return None;
     }
     // `<timestamp>  <EVENT,args...>` — two spaces separate the timestamp.
@@ -121,6 +168,22 @@ pub fn parse_line(line: &str) -> Option<LogEvent> {
                 success: args.get(1).and_then(|s| parse_int(s)).map(|v| v != 0).unwrap_or(false),
                 keystone_level: args.get(2).and_then(|s| parse_int(s)),
                 duration_ms: args.get(3).and_then(|s| parse_int(s)),
+                log_timestamp,
+            }))
+        }
+        "UNIT_DIED" => {
+            // srcGUID, srcName, srcFlags, srcRaidFlags, destGUID, destName,
+            // destFlags, destRaidFlags, recapID, unconsciousOnDeath
+            let guid = args.get(4)?.trim();
+            if !guid.starts_with("Player-") {
+                return None; // mobs, pets, totems…
+            }
+            if args.get(9).and_then(|s| parse_int(s)) == Some(1) {
+                return None; // feign death
+            }
+            Some(LogEvent::UnitDied(UnitDied {
+                name: args.get(5).map(|s| s.trim().trim_matches('"').to_string()).unwrap_or_default(),
+                guid: guid.to_string(),
                 log_timestamp,
             }))
         }
@@ -284,6 +347,41 @@ mod tests {
             LogEvent::ChallengeEnd(e) => assert!(!e.success),
             _ => panic!("expected end"),
         }
+    }
+
+    #[test]
+    fn parses_player_death() {
+        let line = r#"9/14 20:05:00.500  UNIT_DIED,0000000000000000,nil,0x80000000,0x80000000,Player-1096-0A1B2C3D,"Tonyfat-Ravencrest",0x511,0x0,0,0"#;
+        match parse_line(line).unwrap() {
+            LogEvent::UnitDied(d) => {
+                assert_eq!(d.name, "Tonyfat-Ravencrest");
+                assert_eq!(d.guid, "Player-1096-0A1B2C3D");
+                assert_eq!(d.log_timestamp, "9/14 20:05:00.500");
+            }
+            _ => panic!("expected death"),
+        }
+    }
+
+    #[test]
+    fn ignores_mob_and_feign_deaths() {
+        let mob = r#"9/14 20:05:00.500  UNIT_DIED,0000000000000000,nil,0x80000000,0x80000000,Creature-0-1096-2648-1-12345-0000ABCDEF,"Bloodworker",0xa48,0x0,0,0"#;
+        assert!(parse_line(mob).is_none());
+        let feign = r#"9/14 20:05:00.500  UNIT_DIED,0000000000000000,nil,0x80000000,0x80000000,Player-1096-0A1B2C3D,"Hunter-Ravencrest",0x511,0x0,0,1"#;
+        assert!(parse_line(feign).is_none());
+    }
+
+    #[test]
+    fn parses_timestamps_in_both_formats() {
+        let now = NaiveDate::from_ymd_opt(2026, 9, 14).unwrap().and_hms_opt(21, 0, 0).unwrap();
+        let t = parse_log_timestamp("9/14 20:01:05.123", now).unwrap();
+        assert_eq!(t, NaiveDate::from_ymd_opt(2026, 9, 14).unwrap().and_hms_milli_opt(20, 1, 5, 123).unwrap());
+        let t = parse_log_timestamp("9/14/2025 20:01:05.123-4", now).unwrap();
+        assert_eq!(t, NaiveDate::from_ymd_opt(2025, 9, 14).unwrap().and_hms_milli_opt(20, 1, 5, 123).unwrap());
+        // Year-less timestamp from just before New Year, read just after it.
+        let jan = NaiveDate::from_ymd_opt(2027, 1, 1).unwrap().and_hms_opt(0, 10, 0).unwrap();
+        let t = parse_log_timestamp("12/31 23:55:00.000", jan).unwrap();
+        assert_eq!(t.year(), 2026);
+        assert!(parse_log_timestamp("garbage", now).is_none());
     }
 
     #[test]

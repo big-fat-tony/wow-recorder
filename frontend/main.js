@@ -46,6 +46,7 @@ async function loadConfig() {
   const c = await invoke("get_config");
   for (const [id, key] of Object.entries(FIELDS)) $(id).value = c[key];
   $("quality").value = c.quality;
+  $("timer-overlay").checked = !!c.timerOverlay;
   updateQualityLabel();
 }
 
@@ -70,6 +71,7 @@ async function saveConfig() {
   c.quality = +$("quality").value;
   c.stopDelaySecs = +$("stop-delay-secs").value;
   c.audioMode = $("audio-mode").value;
+  c.timerOverlay = $("timer-overlay").checked;
   await invoke("set_config", { config: c });
   const saved = $("saved");
   saved.classList.add("show");

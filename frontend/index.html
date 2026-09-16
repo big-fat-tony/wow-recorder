@@ -92,6 +92,13 @@
         <input id="quality" type="range" min="0" max="100" step="5" />
         <div class="hint">Higher quality = larger files. Uses constant-quality encoding (CQP).</div>
       </div>
+      <div class="field">
+        <div class="toggle">
+          <span class="label">Burn the run clock into the video</span>
+          <label class="switch"><input id="timer-overlay" type="checkbox" /><span class="track"></span></label>
+        </div>
+        <div class="hint">Shows m:ss since the key started (top-left), matching bdk-analyzer / Warcraft Logs timestamps. Deaths are added as chapters either way.</div>
+      </div>
       <div class="grid">
         <div class="field"><label>Stop delay (s)</label><input id="stop-delay-secs" type="number" min="0" max="60" /></div>
         <div class="field">
