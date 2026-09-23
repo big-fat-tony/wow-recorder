@@ -118,7 +118,21 @@ $("update-dismiss").addEventListener("click", () => {
   $("update-banner").hidden = true;
 });
 
+async function loadAutostart() {
+  try { $("autostart").checked = await invoke("get_autostart"); } catch {}
+}
+$("autostart").addEventListener("change", async () => {
+  const el = $("autostart");
+  try {
+    await invoke("set_autostart", { enabled: el.checked });
+  } catch (e) {
+    el.checked = !el.checked; // revert on failure
+    console.warn("autostart toggle failed:", e);
+  }
+});
+
 loadConfig();
+loadAutostart();
 refresh();
 refreshGameRes();
 setInterval(refresh, 2000);

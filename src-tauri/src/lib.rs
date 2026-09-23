@@ -119,6 +119,19 @@ fn get_status(state: State<AppState>) -> Status {
 }
 
 #[tauri::command]
+fn get_autostart(app: AppHandle) -> bool {
+    use tauri_plugin_autostart::ManagerExt;
+    app.autolaunch().is_enabled().unwrap_or(false)
+}
+
+#[tauri::command]
+fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let manager = app.autolaunch();
+    if enabled { manager.enable() } else { manager.disable() }.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn get_config(state: State<AppState>) -> Config {
     state.config.lock().unwrap().clone()
 }
@@ -275,6 +288,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec![])))
         .manage(state)
         .manage(PendingUpdate(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
@@ -285,6 +299,8 @@ pub fn run() {
             pick_directory,
             detect_log_directory,
             get_wow_resolution,
+            get_autostart,
+            set_autostart,
             install_update,
         ])
         .setup(move |app| {
