@@ -22,6 +22,10 @@ pub struct Config {
     /// Audio capture: "off" | "desktop" (no mic) | "desktop_mic" | "game" |
     /// "tracks" (two streams: 1 = the game, 2 = desktop + microphone).
     pub audio_mode: String,
+    /// Microphone boost in dB, applied before the mic is mixed into its track —
+    /// headset mics usually land well below the voices coming out of the
+    /// desktop. Ignored when the mic isn't recorded.
+    pub mic_gain_db: f32,
     /// Seconds to keep recording after `CHALLENGE_MODE_END` (loot/scoreboard).
     pub stop_delay_secs: u64,
     /// Burn the run clock (`m:ss` since `CHALLENGE_MODE_START`) into the video
@@ -38,6 +42,7 @@ impl Default for Config {
             quality: 70,
             output_mode: "1080p".into(),
             audio_mode: "desktop".into(),
+            mic_gain_db: 0.0,
             stop_delay_secs: 5,
             timer_overlay: true,
         }
@@ -82,6 +87,11 @@ impl Config {
 
     pub fn output_dir(&self) -> PathBuf {
         PathBuf::from(&self.output_directory)
+    }
+
+    /// Microphone boost in dB, clamped to a range that can't destroy a track.
+    pub fn mic_gain(&self) -> f32 {
+        self.mic_gain_db.clamp(-20.0, 30.0)
     }
 
     /// Encoder CQP value (lower = better). Quality 0→32, 100→16.

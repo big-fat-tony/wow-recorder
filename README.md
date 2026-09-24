@@ -21,7 +21,8 @@ Runs in the system tray and stays out of the way.
 - ✅ Optional burned-in run clock (`m:ss` since the key started) so an analyzer
   timestamp can be found in the footage
 - ✅ Optional two-track audio: the game alone on track 1, everything the PC
-  plays plus the microphone on track 2
+  plays plus the microphone on track 2, with a mic boost for headsets that sit
+  below the voices coming out of the desktop
 
 The OBS runtime (DLLs + `extprocess_recorder.exe`) is vendored by
 big-fat-tony/libobs-recorder and copied next to the app at build time by

@@ -46,8 +46,10 @@ async function loadConfig() {
   const c = await invoke("get_config");
   for (const [id, key] of Object.entries(FIELDS)) $(id).value = c[key];
   $("quality").value = c.quality;
+  $("mic-gain-db").value = c.micGainDb;
   $("timer-overlay").checked = !!c.timerOverlay;
   updateQualityLabel();
+  updateMicGainLabel();
 }
 
 function updateQualityLabel() {
@@ -56,6 +58,12 @@ function updateQualityLabel() {
   $("quality-val").textContent = `${word} (${q}%)`;
 }
 $("quality").addEventListener("input", updateQualityLabel);
+
+function updateMicGainLabel() {
+  const g = +$("mic-gain-db").value;
+  $("mic-gain-val").textContent = g === 0 ? "off (as captured)" : `${g > 0 ? "+" : ""}${g} dB`;
+}
+$("mic-gain-db").addEventListener("input", updateMicGainLabel);
 
 async function refreshGameRes() {
   const r = await invoke("get_wow_resolution");
@@ -71,6 +79,7 @@ async function saveConfig() {
   c.quality = +$("quality").value;
   c.stopDelaySecs = +$("stop-delay-secs").value;
   c.audioMode = $("audio-mode").value;
+  c.micGainDb = +$("mic-gain-db").value;
   c.timerOverlay = $("timer-overlay").checked;
   await invoke("set_config", { config: c });
   const saved = $("saved");

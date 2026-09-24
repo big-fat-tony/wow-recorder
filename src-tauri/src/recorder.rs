@@ -18,7 +18,9 @@ use crate::config::Config;
 
 /// The WoW window the capture backend targets.
 pub const WOW_WINDOW_TITLE: &str = "World of Warcraft";
-pub const WOW_WINDOW_CLASS: &str = "GxWindowClass";
+/// Retail's window class; older clients used `GxWindowClass`. The capture
+/// sources are told to match on the executable, so this is only a tiebreak.
+pub const WOW_WINDOW_CLASS: &str = "waApplication Window";
 pub const WOW_WINDOW_PROCESS: &str = "Wow.exe";
 
 #[derive(Debug, thiserror::Error)]
@@ -104,6 +106,7 @@ impl Recorder for ObsRecorder {
             };
             settings.set_audio_source(audio);
         }
+        settings.set_microphone_gain_db(config.mic_gain());
         if let Some(text) = overlay_text {
             let font_size = ((output_res.1 as f64 * OVERLAY_FONT_SCALE).round() as u32).max(12);
             settings.set_text_overlay(TextOverlay::new(text, font_size, Corner::TopLeft));
@@ -197,7 +200,8 @@ mod tests {
     /// Real-OBS smoke test: records a few seconds (a black canvas if WoW isn't
     /// running) with the overlay clock ticking, then leaves the file for
     /// inspection. `WOW_RECORDER_SMOKE_AUDIO` picks the audio mode (default
-    /// `tracks`) and `WOW_RECORDER_SMOKE_SECS` the duration.
+    /// `tracks`), `WOW_RECORDER_SMOKE_SECS` the duration and
+    /// `WOW_RECORDER_SMOKE_MIC_DB` the microphone boost.
     ///
     /// Needs the OBS runtime next to the test binary: copy `target/debug/libobs`
     /// into the directory of the `.exe` that `cargo test` prints, then run
@@ -205,11 +209,15 @@ mod tests {
     #[test]
     #[ignore]
     fn obs_overlay_smoke() {
+        // OBS reports what it captures (and what it fails to find) through the
+        // `log` crate, so surface it: `RUST_LOG=info` shows the capture setup.
+        let _ = env_logger::builder().is_test(false).try_init();
         let audio_mode = std::env::var("WOW_RECORDER_SMOKE_AUDIO").unwrap_or_else(|_| "tracks".into());
         let secs: u64 = std::env::var("WOW_RECORDER_SMOKE_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(3);
+        let mic_gain_db: f32 = std::env::var("WOW_RECORDER_SMOKE_MIC_DB").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0);
         let out = std::env::temp_dir().join(format!("wow-recorder-smoke-{audio_mode}.mp4"));
         let _ = std::fs::remove_file(&out);
-        let cfg = Config { output_mode: "raw".into(), audio_mode, ..Config::default() };
+        let cfg = Config { output_mode: "raw".into(), audio_mode, mic_gain_db, ..Config::default() };
         let mut rec = ObsRecorder::new().expect("OBS runtime next to the test exe");
         rec.start(&out, &cfg, Some("0:00")).unwrap();
         for i in 1..=secs {
