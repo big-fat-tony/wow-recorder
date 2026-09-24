@@ -19,7 +19,8 @@ pub struct Config {
     pub quality: u32,
     /// Output downscale: "raw" (match the game), "1440p", "1080p", "720p".
     pub output_mode: String,
-    /// Audio capture: "off" | "desktop" (no mic) | "desktop_mic" | "game".
+    /// Audio capture: "off" | "desktop" (no mic) | "desktop_mic" | "game" |
+    /// "tracks" (two streams: 1 = the game, 2 = desktop + microphone).
     pub audio_mode: String,
     /// Seconds to keep recording after `CHALLENGE_MODE_END` (loot/scoreboard).
     pub stop_delay_secs: u64,

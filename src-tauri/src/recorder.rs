@@ -90,13 +90,20 @@ impl Recorder for ObsRecorder {
         );
         settings.set_framerate(Framerate::new(config.fps, 1));
         settings.set_rate_control(RateControl::CQP(config.cqp()));
-        let audio = match config.audio_mode.as_str() {
-            "off" => AudioSource::NONE,
-            "desktop_mic" => AudioSource::ALL,   // desktop output + microphone
-            "game" => AudioSource::APPLICATION,  // only the WoW window's audio
-            _ => AudioSource::SYSTEM,             // "desktop": default output, no mic
-        };
-        settings.set_audio_source(audio);
+        if config.audio_mode == "tracks" {
+            // Two separate streams in the file: the game alone (what most
+            // players open by default), then everything the PC plays plus the
+            // microphone — comms and commentary, mutable in one click.
+            settings.set_audio_tracks(vec![AudioSource::APPLICATION, AudioSource::ALL]);
+        } else {
+            let audio = match config.audio_mode.as_str() {
+                "off" => AudioSource::NONE,
+                "desktop_mic" => AudioSource::ALL,   // desktop output + microphone
+                "game" => AudioSource::APPLICATION,  // only the WoW window's audio
+                _ => AudioSource::SYSTEM,             // "desktop": default output, no mic
+            };
+            settings.set_audio_source(audio);
+        }
         if let Some(text) = overlay_text {
             let font_size = ((output_res.1 as f64 * OVERLAY_FONT_SCALE).round() as u32).max(12);
             settings.set_text_overlay(TextOverlay::new(text, font_size, Corner::TopLeft));
@@ -187,22 +194,27 @@ pub fn make_recorder() -> Box<dyn Recorder> {
 mod tests {
     use super::*;
 
-    /// Real-OBS smoke test: records ~3 s (a black canvas if WoW isn't running)
-    /// with the overlay clock ticking, then leaves the file for inspection.
+    /// Real-OBS smoke test: records a few seconds (a black canvas if WoW isn't
+    /// running) with the overlay clock ticking, then leaves the file for
+    /// inspection. `WOW_RECORDER_SMOKE_AUDIO` picks the audio mode (default
+    /// `tracks`) and `WOW_RECORDER_SMOKE_SECS` the duration.
+    ///
     /// Needs the OBS runtime next to the test binary: copy `target/debug/libobs`
     /// into the directory of the `.exe` that `cargo test` prints, then run
     /// `cargo test obs_overlay_smoke -- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn obs_overlay_smoke() {
-        let out = std::env::temp_dir().join("wow-recorder-overlay-smoke.mp4");
+        let audio_mode = std::env::var("WOW_RECORDER_SMOKE_AUDIO").unwrap_or_else(|_| "tracks".into());
+        let secs: u64 = std::env::var("WOW_RECORDER_SMOKE_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(3);
+        let out = std::env::temp_dir().join(format!("wow-recorder-smoke-{audio_mode}.mp4"));
         let _ = std::fs::remove_file(&out);
-        let cfg = Config { output_mode: "raw".into(), audio_mode: "off".into(), ..Config::default() };
+        let cfg = Config { output_mode: "raw".into(), audio_mode, ..Config::default() };
         let mut rec = ObsRecorder::new().expect("OBS runtime next to the test exe");
         rec.start(&out, &cfg, Some("0:00")).unwrap();
-        for i in 1..=3 {
+        for i in 1..=secs {
             std::thread::sleep(std::time::Duration::from_secs(1));
-            rec.set_overlay_text(&format!("0:0{i}")).unwrap();
+            rec.set_overlay_text(&format!("{}:{:02}", i / 60, i % 60)).unwrap();
         }
         rec.stop().unwrap();
         assert!(out.is_file(), "no output at {}", out.display());
