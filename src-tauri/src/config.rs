@@ -28,9 +28,11 @@ pub struct Config {
     pub mic_gain_db: f32,
     /// Seconds to keep recording after `CHALLENGE_MODE_END` (loot/scoreboard).
     pub stop_delay_secs: u64,
-    /// Give up on a run whose combat log has been silent this long and keep
-    /// what was recorded — an abandoned key is never ended in the log. 0 = wait
-    /// forever (the game closing or leaving the dungeon still ends it).
+    /// Give up on a run whose combat log has stopped growing for this long and
+    /// keep what was recorded — an abandoned key is never ended in the log.
+    /// Generous on purpose: a group can stand still for a while mid-key, and
+    /// cutting a live run costs more than a few idle minutes of footage. 0 =
+    /// wait forever (the game closing or leaving the dungeon still ends it).
     pub abandon_timeout_secs: u64,
     /// Burn the run clock (`m:ss` since `CHALLENGE_MODE_START`) into the video
     /// so a timestamp from an analyzer can be found in the footage.
@@ -48,7 +50,7 @@ impl Default for Config {
             audio_mode: "desktop".into(),
             mic_gain_db: 0.0,
             stop_delay_secs: 5,
-            abandon_timeout_secs: 180,
+            abandon_timeout_secs: 600,
             timer_overlay: true,
         }
     }

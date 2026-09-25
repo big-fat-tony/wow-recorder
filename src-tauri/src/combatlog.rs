@@ -237,14 +237,16 @@ pub fn newest_log(dir: &Path, pattern: &Regex) -> Option<PathBuf> {
         .max_by_key(|p| modified_ms(p))
 }
 
-/// How long ago WoW last wrote to the log it is currently filling, or `None`
-/// when there is no recent log to look at. A run whose log has gone quiet for
-/// minutes is one nobody is playing any more.
-pub fn idle_time(dir: &Path) -> Option<Duration> {
+/// The log WoW is currently filling and how long it is, or `None` when there is
+/// no recent log to look at. Callers watch the length for progress: the
+/// modification time is no use here, because Windows leaves it stale for as
+/// long as the writer holds the file open (the same reason Explorer shows a
+/// recording still being muxed as 0 KB). The length keeps up.
+pub fn current_log_size(dir: &Path) -> Option<(PathBuf, u64)> {
     let pattern = Regex::new(LOG_FILE_PATTERN).expect("valid pattern");
     let newest = newest_log(dir, &pattern)?;
-    let since = now_ms() - modified_ms(&newest);
-    Some(Duration::from_millis(since.max(0) as u64))
+    let len = std::fs::metadata(&newest).ok()?.len();
+    Some((newest, len))
 }
 
 /// Tail the newest combat log in `dir`, invoking `on_event` for each Mythic+
