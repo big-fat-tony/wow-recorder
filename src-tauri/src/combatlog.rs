@@ -3,8 +3,9 @@
 //! WoW writes `WoWCombatLog*.txt` into `<install>/<flavor>/Logs`. With advanced
 //! combat logging on, a Mythic+ run brackets its events with
 //! `CHALLENGE_MODE_START` and `CHALLENGE_MODE_END`. We tail the newest log file
-//! and emit those two events (the recorder starts/stops on them) plus player
-//! `UNIT_DIED` events, which become chapter markers in the recording.
+//! and emit those two events (the recorder starts/stops on them), `ZONE_CHANGE`
+//! (leaving the dungeon abandons the key, and WoW logs no end event for that)
+//! plus player `UNIT_DIED` events, which become chapter markers.
 
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Seek, SeekFrom};
@@ -44,6 +45,17 @@ pub struct ChallengeEnd {
     pub log_timestamp: String,
 }
 
+/// The player moved to another zone. Leaving the dungeon mid-run is how an
+/// abandoned key shows up in the log: WoW writes no `CHALLENGE_MODE_END` for
+/// one (the next key's start writes a zeroed one for the key it replaces).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ZoneChange {
+    pub instance_id: Option<i64>,
+    pub zone: String,
+    pub log_timestamp: String,
+}
+
 /// A player died (feign death excluded).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -59,6 +71,7 @@ pub struct UnitDied {
 pub enum LogEvent {
     ChallengeStart(ChallengeStart),
     ChallengeEnd(ChallengeEnd),
+    ZoneChange(ZoneChange),
     UnitDied(UnitDied),
 }
 
@@ -139,7 +152,7 @@ fn parse_affixes(s: &str) -> Vec<i64> {
 
 /// Parse one line into a Mythic+ event, if it is one.
 pub fn parse_line(line: &str) -> Option<LogEvent> {
-    if !line.contains("CHALLENGE_MODE_") && !line.contains("UNIT_DIED") {
+    if !line.contains("CHALLENGE_MODE_") && !line.contains("UNIT_DIED") && !line.contains("ZONE_CHANGE") {
         return None;
     }
     // `<timestamp>  <EVENT,args...>` — two spaces separate the timestamp.
@@ -168,6 +181,14 @@ pub fn parse_line(line: &str) -> Option<LogEvent> {
                 success: args.get(1).and_then(|s| parse_int(s)).map(|v| v != 0).unwrap_or(false),
                 keystone_level: args.get(2).and_then(|s| parse_int(s)),
                 duration_ms: args.get(3).and_then(|s| parse_int(s)),
+                log_timestamp,
+            }))
+        }
+        "ZONE_CHANGE" => {
+            // instanceID, "zone", difficultyID
+            Some(LogEvent::ZoneChange(ZoneChange {
+                instance_id: args.first().and_then(|s| parse_int(s)),
+                zone: args.get(1).map(|s| s.trim().trim_matches('"').to_string()).unwrap_or_default(),
                 log_timestamp,
             }))
         }
@@ -214,6 +235,16 @@ pub fn newest_log(dir: &Path, pattern: &Regex) -> Option<PathBuf> {
         .map(|e| e.path())
         .filter(|p| now - modified_ms(p) <= MAX_AGE_MS)
         .max_by_key(|p| modified_ms(p))
+}
+
+/// How long ago WoW last wrote to the log it is currently filling, or `None`
+/// when there is no recent log to look at. A run whose log has gone quiet for
+/// minutes is one nobody is playing any more.
+pub fn idle_time(dir: &Path) -> Option<Duration> {
+    let pattern = Regex::new(LOG_FILE_PATTERN).expect("valid pattern");
+    let newest = newest_log(dir, &pattern)?;
+    let since = now_ms() - modified_ms(&newest);
+    Some(Duration::from_millis(since.max(0) as u64))
 }
 
 /// Tail the newest combat log in `dir`, invoking `on_event` for each Mythic+
@@ -337,6 +368,18 @@ mod tests {
                 assert_eq!(e.duration_ms, Some(1826000));
             }
             _ => panic!("expected end"),
+        }
+    }
+
+    #[test]
+    fn parses_zone_change() {
+        let line = r#"9/25/2026 16:11:45.221  ZONE_CHANGE,2521,"Ruby Life Pools",23"#;
+        match parse_line(line).unwrap() {
+            LogEvent::ZoneChange(z) => {
+                assert_eq!(z.instance_id, Some(2521));
+                assert_eq!(z.zone, "Ruby Life Pools");
+            }
+            _ => panic!("expected zone change"),
         }
     }
 

@@ -28,6 +28,10 @@ pub struct Config {
     pub mic_gain_db: f32,
     /// Seconds to keep recording after `CHALLENGE_MODE_END` (loot/scoreboard).
     pub stop_delay_secs: u64,
+    /// Give up on a run whose combat log has been silent this long and keep
+    /// what was recorded — an abandoned key is never ended in the log. 0 = wait
+    /// forever (the game closing or leaving the dungeon still ends it).
+    pub abandon_timeout_secs: u64,
     /// Burn the run clock (`m:ss` since `CHALLENGE_MODE_START`) into the video
     /// so a timestamp from an analyzer can be found in the footage.
     pub timer_overlay: bool,
@@ -44,6 +48,7 @@ impl Default for Config {
             audio_mode: "desktop".into(),
             mic_gain_db: 0.0,
             stop_delay_secs: 5,
+            abandon_timeout_secs: 180,
             timer_overlay: true,
         }
     }
@@ -87,6 +92,16 @@ impl Config {
 
     pub fn output_dir(&self) -> PathBuf {
         PathBuf::from(&self.output_directory)
+    }
+
+    /// How long the combat log may be silent before an active run is treated
+    /// as abandoned. Zero disables the check; anything shorter than a minute
+    /// would trip over a wipe and the run back.
+    pub fn abandon_timeout(&self) -> std::time::Duration {
+        match self.abandon_timeout_secs {
+            0 => std::time::Duration::ZERO,
+            secs => std::time::Duration::from_secs(secs.max(60)),
+        }
     }
 
     /// Microphone boost in dB, clamped to a range that can't destroy a track.

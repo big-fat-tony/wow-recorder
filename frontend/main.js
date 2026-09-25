@@ -40,6 +40,7 @@ const FIELDS = {
   "audio-mode": "audioMode",
   fps: "fps",
   "stop-delay-secs": "stopDelaySecs",
+  "abandon-timeout-secs": "abandonTimeoutSecs",
 };
 
 async function loadConfig() {
@@ -78,6 +79,7 @@ async function saveConfig() {
   c.fps = +$("fps").value;
   c.quality = +$("quality").value;
   c.stopDelaySecs = +$("stop-delay-secs").value;
+  c.abandonTimeoutSecs = +$("abandon-timeout-secs").value;
   c.audioMode = $("audio-mode").value;
   c.micGainDb = +$("mic-gain-db").value;
   c.timerOverlay = $("timer-overlay").checked;

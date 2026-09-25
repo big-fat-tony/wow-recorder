@@ -100,7 +100,14 @@
         <div class="hint">Shows m:ss since the key started (top-left), matching bdk-analyzer / Warcraft Logs timestamps. Deaths are added as chapters either way.</div>
       </div>
       <div class="grid">
-        <div class="field"><label>Stop delay (s)</label><input id="stop-delay-secs" type="number" min="0" max="60" /></div>
+        <div class="field">
+          <label>Stop delay (s)</label><input id="stop-delay-secs" type="number" min="0" max="60" />
+          <div class="hint">Extra seconds recorded after the key ends, for the loot and scoreboard.</div>
+        </div>
+        <div class="field">
+          <label>Abandon after (s)</label><input id="abandon-timeout-secs" type="number" min="0" max="1800" step="30" />
+          <div class="hint">A given-up key is never ended in the combat log, so the recording is stopped and kept once the log has been silent this long. 0 = never (leaving the dungeon or closing WoW still ends it).</div>
+        </div>
         <div class="field">
           <label>Audio</label>
           <select id="audio-mode">

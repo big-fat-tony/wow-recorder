@@ -1,11 +1,12 @@
 //! The recording controller: turns combat-log events into recordings.
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use chrono::{Local, NaiveDateTime};
 use serde::Serialize;
 
-use crate::combatlog::{parse_log_timestamp, ChallengeEnd, ChallengeStart, LogEvent, UnitDied};
+use crate::combatlog::{parse_log_timestamp, ChallengeEnd, ChallengeStart, LogEvent, UnitDied, ZoneChange};
 use crate::config::Config;
 use crate::mp4chapters::{self, Chapter};
 use crate::recorder::Recorder;
@@ -35,8 +36,13 @@ pub struct RecordingMetadata {
     pub instance_id: Option<i64>,
     pub challenge_id: Option<i64>,
     pub affixes: Vec<i64>,
+    /// `Some` only when WoW logged a `CHALLENGE_MODE_END`; `None` for a key
+    /// that was abandoned, since the game never records an outcome for one.
     pub success: Option<bool>,
     pub duration_ms: Option<i64>,
+    /// What stopped the capture: `challenge_mode_end`, or why it was abandoned
+    /// (`left_dungeon`, `game_closed`, `log_idle`, `app_quit`).
+    pub ended_by: String,
     /// Raw combat-log timestamps at start/end — the sync anchor.
     pub start_log_timestamp: String,
     pub end_log_timestamp: Option<String>,
@@ -85,11 +91,22 @@ pub struct Controller {
     recorder: Box<dyn Recorder>,
     config: Config,
     active: Option<Active>,
+    /// Since when the WoW window has been missing, for the grace period before
+    /// a closed game counts as an abandoned key.
+    wow_gone_since: Option<Instant>,
+    /// Throttles the combat-log staleness check in [`Self::tick`].
+    last_idle_check: Option<Instant>,
 }
+
+/// How long the WoW window has to stay missing before the run counts as
+/// abandoned — long enough to ride out a crash-to-desktop-and-relaunch race.
+const WOW_GONE_GRACE: Duration = Duration::from_secs(15);
+/// How often [`Self::tick`] stats the combat log to see whether it went quiet.
+const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 
 impl Controller {
     pub fn new(recorder: Box<dyn Recorder>, config: Config) -> Self {
-        Self { recorder, config, active: None }
+        Self { recorder, config, active: None, wow_gone_since: None, last_idle_check: None }
     }
 
     pub fn set_config(&mut self, config: Config) {
@@ -108,13 +125,24 @@ impl Controller {
         match event {
             LogEvent::ChallengeStart(start) => self.on_start(start),
             LogEvent::ChallengeEnd(end) => self.on_end(end),
+            LogEvent::ZoneChange(zone) => self.on_zone_change(zone),
             LogEvent::UnitDied(died) => self.on_death(died),
         }
     }
 
-    /// Push the current run clock to the overlay. Called about once a second
-    /// from a timer thread while recording; a no-op otherwise.
+    /// Called about once a second from a timer thread. Watches for the ways a
+    /// key ends without a `CHALLENGE_MODE_END` and pushes the run clock to the
+    /// overlay; a no-op when nothing is being recorded.
     pub fn tick(&mut self) {
+        if self.active.is_none() {
+            self.wow_gone_since = None;
+            self.last_idle_check = None;
+            return;
+        }
+        if let Some(reason) = self.abandon_reason() {
+            self.abandon(reason);
+            return;
+        }
         if !self.config.timer_overlay {
             return;
         }
@@ -190,6 +218,55 @@ impl Controller {
         }
     }
 
+    /// Why the active run should be considered abandoned, if it should.
+    ///
+    /// A key that is given up on leaves no trace in the combat log — no end
+    /// event, and often no further lines at all — so the give-up has to be
+    /// inferred: the game is gone, or the log stopped growing.
+    fn abandon_reason(&mut self) -> Option<&'static str> {
+        if crate::window::wow_is_running() {
+            self.wow_gone_since = None;
+        } else {
+            let since = *self.wow_gone_since.get_or_insert_with(Instant::now);
+            if since.elapsed() >= WOW_GONE_GRACE {
+                return Some("game_closed");
+            }
+        }
+
+        let timeout = self.config.abandon_timeout();
+        if timeout.is_zero() {
+            return None;
+        }
+        let due = self.last_idle_check.is_none_or(|t| t.elapsed() >= IDLE_CHECK_INTERVAL);
+        if !due {
+            return None;
+        }
+        self.last_idle_check = Some(Instant::now());
+        // The capture itself is young right after the key starts, so don't let
+        // a log that has not been written to yet end the run immediately.
+        let active = self.active.as_ref()?;
+        let recorded = Local::now().naive_local() - active.capture_started;
+        if recorded.to_std().is_ok_and(|d| d < timeout) {
+            return None;
+        }
+        let quiet = crate::combatlog::idle_time(&PathBuf::from(&self.config.log_directory))?;
+        (quiet >= timeout).then_some("log_idle")
+    }
+
+    fn on_zone_change(&mut self, zone: ZoneChange) {
+        let Some(active) = &self.active else { return };
+        // Sub-areas inside a dungeon share its instance, so compare on that
+        // when the log gave us both ids and fall back to the zone name.
+        let left = match (active.start.instance_id, zone.instance_id) {
+            (Some(run), Some(now)) => run != now,
+            _ => !zone.zone.eq_ignore_ascii_case(&active.start.zone),
+        };
+        if left {
+            log::info!("left {} for {} mid-run", active.start.zone, zone.zone);
+            self.abandon("left_dungeon");
+        }
+    }
+
     fn on_death(&mut self, died: UnitDied) {
         let Some(active) = self.active.as_mut() else { return };
         let Some(t) = parse_log_timestamp(&died.log_timestamp, Local::now().naive_local()) else {
@@ -215,15 +292,34 @@ impl Controller {
     }
 
     fn on_end(&mut self, end: ChallengeEnd) {
-        let Some(active) = self.active.take() else {
+        if self.active.is_none() {
             log::warn!("CHALLENGE_MODE_END with no active recording; ignoring");
             return;
-        };
+        }
         // Optional tail so the loot/scoreboard is captured.
         let delay = self.config.stop_delay_secs;
         if delay > 0 {
             std::thread::sleep(std::time::Duration::from_secs(delay));
         }
+        self.finish(Some(end), "challenge_mode_end");
+    }
+
+    /// Stop and keep a run the game never ended: the key was given up on, or
+    /// WoW (or the app) went away. The footage is worth the same either way —
+    /// only the outcome is unknown.
+    pub fn abandon(&mut self, reason: &'static str) {
+        if self.active.is_some() {
+            log::info!("run abandoned ({reason}); keeping the recording");
+            self.finish(None, reason);
+        }
+    }
+
+    /// Finalize the active recording: stop the capture, write the chapters into
+    /// the MP4 and the metadata sidecar next to it.
+    fn finish(&mut self, end: Option<ChallengeEnd>, ended_by: &str) {
+        let Some(active) = self.active.take() else { return };
+        self.wow_gone_since = None;
+        self.last_idle_check = None;
         if let Err(e) = self.recorder.stop() {
             log::error!("failed to stop recording: {e}");
         }
@@ -234,14 +330,15 @@ impl Controller {
             video_file: active.video_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
             content_type: "mythicplus".into(),
             zone: active.start.zone.clone(),
-            keystone_level: active.start.keystone_level.or(end.keystone_level),
-            instance_id: active.start.instance_id.or(end.instance_id),
+            keystone_level: active.start.keystone_level.or(end.as_ref().and_then(|e| e.keystone_level)),
+            instance_id: active.start.instance_id.or(end.as_ref().and_then(|e| e.instance_id)),
             challenge_id: active.start.challenge_id,
             affixes: active.start.affixes.clone(),
-            success: Some(end.success),
-            duration_ms: end.duration_ms,
+            success: end.as_ref().map(|e| e.success),
+            duration_ms: end.as_ref().and_then(|e| e.duration_ms),
+            ended_by: ended_by.to_string(),
             start_log_timestamp: active.start.log_timestamp.clone(),
-            end_log_timestamp: Some(end.log_timestamp.clone()),
+            end_log_timestamp: end.as_ref().map(|e| e.log_timestamp.clone()),
             started_at: active.started_at.clone(),
             ended_at: Some(Local::now().to_rfc3339()),
             challenge_start_video_offset_ms,
@@ -256,12 +353,12 @@ impl Controller {
             }
             Err(e) => log::error!("failed to serialize metadata: {e}"),
         }
-        log::info!(
-            "recording finished: {} ({}), {}",
-            active.start.zone,
-            if end.success { "timed/completed" } else { "depleted" },
-            meta_path.display()
-        );
+        let outcome = match end.as_ref().map(|e| e.success) {
+            Some(true) => "timed/completed",
+            Some(false) => "depleted",
+            None => "abandoned",
+        };
+        log::info!("recording finished: {} ({outcome}), {}", active.start.zone, meta_path.display());
     }
 }
 
@@ -298,8 +395,70 @@ mod tests {
     use chrono::Datelike;
 
     fn tmp_config() -> Config {
-        let dir = std::env::temp_dir().join(format!("wow-recorder-test-{}", std::process::id()));
+        tmp_config_in("run")
+    }
+
+    fn tmp_config_in(name: &str) -> Config {
+        let dir = std::env::temp_dir().join(format!("wow-recorder-test-{}-{name}", std::process::id()));
         Config { output_directory: dir.to_string_lossy().into_owned(), stop_delay_secs: 0, ..Config::default() }
+    }
+
+    fn start_of(zone: &str, instance: i64) -> ChallengeStart {
+        ChallengeStart {
+            zone: zone.into(),
+            instance_id: Some(instance),
+            challenge_id: Some(399),
+            keystone_level: Some(17),
+            affixes: vec![9, 10],
+            log_timestamp: "9/25 16:13:48.815".into(),
+        }
+    }
+
+    /// Leaving the dungeon abandons the key, and WoW logs no end event for it —
+    /// the footage still has to be kept.
+    #[test]
+    fn leaving_the_dungeon_keeps_the_recording() {
+        let cfg = tmp_config_in("abandon");
+        let out = cfg.output_dir();
+        let mut ctrl = Controller::new(Box::new(NoopRecorder::default()), cfg);
+        ctrl.handle(LogEvent::ChallengeStart(start_of("Ruby Life Pools", 2521)));
+        ctrl.handle(LogEvent::UnitDied(UnitDied {
+            name: "Zarkar-Kazzak".into(),
+            guid: "Player-1305-0D73D2F5".into(),
+            log_timestamp: "9/25 16:15:37.000".into(),
+        }));
+        ctrl.handle(LogEvent::ZoneChange(ZoneChange {
+            instance_id: Some(2022),
+            zone: "The Waking Shores".into(),
+            log_timestamp: "9/25 16:17:30.000".into(),
+        }));
+        assert!(!ctrl.is_recording());
+
+        let files: Vec<_> = std::fs::read_dir(&out).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        let json = files.iter().find(|p| p.extension().map(|e| e == "json").unwrap_or(false)).expect("metadata json");
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(json).unwrap()).unwrap();
+        assert_eq!(v["zone"], "Ruby Life Pools");
+        assert_eq!(v["endedBy"], "left_dungeon");
+        assert!(v["success"].is_null(), "an abandoned key has no outcome");
+        assert!(v["endLogTimestamp"].is_null());
+        assert_eq!(v["markers"][0]["title"], "Death: Zarkar");
+        std::fs::remove_dir_all(&out).ok();
+    }
+
+    /// Sub-areas inside the dungeon share its instance id and must not stop it.
+    #[test]
+    fn zone_change_inside_the_dungeon_keeps_recording() {
+        let cfg = tmp_config_in("subzone");
+        let out = cfg.output_dir();
+        let mut ctrl = Controller::new(Box::new(NoopRecorder::default()), cfg);
+        ctrl.handle(LogEvent::ChallengeStart(start_of("Ruby Life Pools", 2521)));
+        ctrl.handle(LogEvent::ZoneChange(ZoneChange {
+            instance_id: Some(2521),
+            zone: "Ruby Life Pools".into(),
+            log_timestamp: "9/25 16:14:01.551".into(),
+        }));
+        assert!(ctrl.is_recording());
+        std::fs::remove_dir_all(&out).ok();
     }
 
     #[test]

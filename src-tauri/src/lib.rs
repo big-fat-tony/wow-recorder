@@ -328,6 +328,15 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Quitting mid-run would otherwise leave the MP4 unfinalized (and
+            // unplayable): stop the capture and keep what was recorded.
+            if matches!(event, tauri::RunEvent::Exit) {
+                if let Ok(mut ctrl) = app.state::<AppState>().controller.lock() {
+                    ctrl.abandon("app_quit");
+                }
+            }
+        });
 }

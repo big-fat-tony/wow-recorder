@@ -23,6 +23,9 @@ Runs in the system tray and stays out of the way.
 - ✅ Optional two-track audio: the game alone on track 1, everything the PC
   plays plus the microphone on track 2, with a mic boost for headsets that sit
   below the voices coming out of the desktop
+- ✅ Abandoned keys are kept: WoW logs no end event for one, so the recording is
+  closed when the dungeon is left, WoW exits, the combat log goes quiet, or the
+  app is told to quit
 
 The OBS runtime (DLLs + `extprocess_recorder.exe`) is vendored by
 big-fat-tony/libobs-recorder and copied next to the app at build time by
