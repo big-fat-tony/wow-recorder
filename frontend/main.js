@@ -30,7 +30,25 @@ async function refresh() {
     : s.watching
     ? "Waiting for a Mythic+ to start…"
     : "Not watching — set a Logs directory below.";
+  $("stop-recording").hidden = !rec;
 }
+
+// Abandoned a key and still standing in the dungeon? Nothing in the combat log
+// says so, so let the run be ended by hand instead of waiting for the backstop.
+$("stop-recording").addEventListener("click", async () => {
+  const button = $("stop-recording");
+  button.disabled = true;
+  button.textContent = "Saving…";
+  try {
+    await invoke("stop_recording");
+  } finally {
+    setTimeout(() => {
+      button.disabled = false;
+      button.textContent = "Stop & save";
+      refresh();
+    }, 1500);
+  }
+});
 
 // --- Settings --------------------------------------------------------------
 const FIELDS = {

@@ -71,7 +71,7 @@ body {
   border-bottom: 1px solid var(--accent);
 }
 #update-banner[hidden] { display: none !important; }
-#update-banner .grow { flex: 1; }
+#update-banner .grow, .status-hero .grow { flex: 1; }
 
 /* Layout */
 main {

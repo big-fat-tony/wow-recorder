@@ -25,7 +25,7 @@ Runs in the system tray and stays out of the way.
   below the voices coming out of the desktop
 - ✅ Abandoned keys are kept: WoW logs no end event for one, so the recording is
   closed when the dungeon is left, WoW exits, the combat log goes quiet, or the
-  app is told to quit
+  app is told to quit — or on demand, from the window or the tray
 
 The OBS runtime (DLLs + `extprocess_recorder.exe`) is vendored by
 big-fat-tony/libobs-recorder and copied next to the app at build time by

@@ -118,6 +118,25 @@ fn get_status(state: State<AppState>) -> Status {
     }
 }
 
+/// End the run being recorded right now and keep the footage — for a key given
+/// up on while everyone stands in the dungeon, where the game gives nothing to
+/// detect and the log-went-quiet backstop is minutes away. Returns whether
+/// there was anything to stop; the capture is closed off the UI thread, since
+/// finalizing a multi-gigabyte MP4 takes a moment.
+#[tauri::command]
+fn stop_recording(state: State<AppState>) -> bool {
+    let controller = state.controller.clone();
+    let recording = controller.lock().map(|c| c.is_recording()).unwrap_or(false);
+    if recording {
+        std::thread::spawn(move || {
+            if let Ok(mut ctrl) = controller.lock() {
+                ctrl.abandon("stopped_by_hand");
+            }
+        });
+    }
+    recording
+}
+
 #[tauri::command]
 fn get_autostart(app: AppHandle) -> bool {
     use tauri_plugin_autostart::ManagerExt;
@@ -189,9 +208,10 @@ fn show_main_window(app: &AppHandle) {
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open", true, None::<&str>)?;
     let folder = MenuItem::with_id(app, "folder", "Open recordings folder", true, None::<&str>)?;
+    let stop = MenuItem::with_id(app, "stop", "Stop recording", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(app, &[&open, &folder, &sep, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &folder, &stop, &sep, &quit])?;
 
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().unwrap().clone())
@@ -202,6 +222,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
             "folder" => {
                 let state = app.state::<AppState>();
                 let _ = open_recordings_folder(state);
+            }
+            "stop" => {
+                if !stop_recording(app.state::<AppState>()) {
+                    log::info!("stop requested from the tray, but nothing is recording");
+                }
             }
             "quit" => app.exit(0),
             _ => {}
@@ -299,6 +324,7 @@ pub fn run() {
             pick_directory,
             detect_log_directory,
             get_wow_resolution,
+            stop_recording,
             get_autostart,
             set_autostart,
             install_update,
