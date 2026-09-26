@@ -30,8 +30,10 @@ pub struct Config {
     pub stop_delay_secs: u64,
     /// Give up on a run whose combat log has stopped growing for this long and
     /// keep what was recorded — an abandoned key is never ended in the log.
-    /// Generous on purpose: a group can stand still for a while mid-key, and
-    /// cutting a live run costs more than a few idle minutes of footage. 0 =
+    /// With auto-logging (the Warcraft Logs uploader and friends) this is the
+    /// *only* signal that a key was left: logging is switched off on the way
+    /// out, so no zone change is ever written. A key being played writes to the
+    /// log constantly, so silence this long means nobody is playing it. 0 =
     /// wait forever (the game closing or leaving the dungeon still ends it).
     pub abandon_timeout_secs: u64,
     /// Burn the run clock (`m:ss` since `CHALLENGE_MODE_START`) into the video
@@ -50,7 +52,7 @@ impl Default for Config {
             audio_mode: "desktop".into(),
             mic_gain_db: 0.0,
             stop_delay_secs: 5,
-            abandon_timeout_secs: 600,
+            abandon_timeout_secs: 180,
             timer_overlay: true,
         }
     }
