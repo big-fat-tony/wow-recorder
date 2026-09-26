@@ -121,6 +121,11 @@
         </div>
       </div>
       <div class="field">
+        <label>Desktop level <span id="desktop-gain-val" class="ver"></span></label>
+        <input id="desktop-gain-db" type="range" min="-20" max="10" step="1" />
+        <div class="hint">Headroom for the track that carries the desktop and your mic together. Windows hands out a mix already at full scale, so without a pad the two sum past it and clip — that is the crackling. Ignored when the mic is not recorded.</div>
+      </div>
+      <div class="field">
         <label>Mic boost <span id="mic-gain-val" class="ver"></span></label>
         <input id="mic-gain-db" type="range" min="-20" max="30" step="1" />
         <div class="hint">Lifts your microphone against the voices coming out of the desktop. Only used when the mic is recorded.</div>

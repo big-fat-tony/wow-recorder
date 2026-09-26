@@ -107,6 +107,7 @@ impl Recorder for ObsRecorder {
             settings.set_audio_source(audio);
         }
         settings.set_microphone_gain_db(config.mic_gain());
+        settings.set_desktop_gain_db(config.desktop_gain());
         if let Some(text) = overlay_text {
             let font_size = ((output_res.1 as f64 * OVERLAY_FONT_SCALE).round() as u32).max(12);
             settings.set_text_overlay(TextOverlay::new(text, font_size, Corner::TopLeft));
@@ -200,8 +201,9 @@ mod tests {
     /// Real-OBS smoke test: records a few seconds (a black canvas if WoW isn't
     /// running) with the overlay clock ticking, then leaves the file for
     /// inspection. `WOW_RECORDER_SMOKE_AUDIO` picks the audio mode (default
-    /// `tracks`), `WOW_RECORDER_SMOKE_SECS` the duration and
-    /// `WOW_RECORDER_SMOKE_MIC_DB` the microphone boost.
+    /// `tracks`), `WOW_RECORDER_SMOKE_SECS` the duration,
+    /// `WOW_RECORDER_SMOKE_MIC_DB` the microphone boost and
+    /// `WOW_RECORDER_SMOKE_DESKTOP_DB` the desktop pad.
     ///
     /// Needs the OBS runtime next to the test binary: copy `target/debug/libobs`
     /// into the directory of the `.exe` that `cargo test` prints, then run
@@ -215,9 +217,13 @@ mod tests {
         let audio_mode = std::env::var("WOW_RECORDER_SMOKE_AUDIO").unwrap_or_else(|_| "tracks".into());
         let secs: u64 = std::env::var("WOW_RECORDER_SMOKE_SECS").ok().and_then(|s| s.parse().ok()).unwrap_or(3);
         let mic_gain_db: f32 = std::env::var("WOW_RECORDER_SMOKE_MIC_DB").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+        let desktop_gain_db: f32 = std::env::var("WOW_RECORDER_SMOKE_DESKTOP_DB")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(Config::default().desktop_gain_db);
         let out = std::env::temp_dir().join(format!("wow-recorder-smoke-{audio_mode}.mp4"));
         let _ = std::fs::remove_file(&out);
-        let cfg = Config { output_mode: "raw".into(), audio_mode, mic_gain_db, ..Config::default() };
+        let cfg = Config { output_mode: "raw".into(), audio_mode, mic_gain_db, desktop_gain_db, ..Config::default() };
         let mut rec = ObsRecorder::new().expect("OBS runtime next to the test exe");
         rec.start(&out, &cfg, Some("0:00")).unwrap();
         for i in 1..=secs {

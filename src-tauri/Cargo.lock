@@ -439,7 +439,7 @@ dependencies = [
 [[package]]
 name = "build-helper"
 version = "0.1.0"
-source = "git+https://github.com/big-fat-tony/libobs-recorder.git#dafcef876919d710db1672a45c5056499f15ac0d"
+source = "git+https://github.com/big-fat-tony/libobs-recorder.git#70c021bc330ba5ba06860121f55d56a68058ca47"
 
 [[package]]
 name = "bumpalo"
@@ -1991,7 +1991,7 @@ dependencies = [
 [[package]]
 name = "intprocess-recorder"
 version = "0.1.0"
-source = "git+https://github.com/big-fat-tony/libobs-recorder.git#dafcef876919d710db1672a45c5056499f15ac0d"
+source = "git+https://github.com/big-fat-tony/libobs-recorder.git#70c021bc330ba5ba06860121f55d56a68058ca47"
 dependencies = [
  "libobs-sys",
  "serde",
@@ -2000,7 +2000,7 @@ dependencies = [
 [[package]]
 name = "ipc-link"
 version = "0.1.0"
-source = "git+https://github.com/big-fat-tony/libobs-recorder.git#dafcef876919d710db1672a45c5056499f15ac0d"
+source = "git+https://github.com/big-fat-tony/libobs-recorder.git#70c021bc330ba5ba06860121f55d56a68058ca47"
 dependencies = [
  "intprocess-recorder",
  "log",
@@ -2293,7 +2293,7 @@ dependencies = [
 [[package]]
 name = "libobs-recorder"
 version = "2.0.0"
-source = "git+https://github.com/big-fat-tony/libobs-recorder.git#dafcef876919d710db1672a45c5056499f15ac0d"
+source = "git+https://github.com/big-fat-tony/libobs-recorder.git#70c021bc330ba5ba06860121f55d56a68058ca47"
 dependencies = [
  "intprocess-recorder",
  "ipc-link",
@@ -2302,7 +2302,7 @@ dependencies = [
 [[package]]
 name = "libobs-sys"
 version = "0.1.0"
-source = "git+https://github.com/big-fat-tony/libobs-recorder.git#dafcef876919d710db1672a45c5056499f15ac0d"
+source = "git+https://github.com/big-fat-tony/libobs-recorder.git#70c021bc330ba5ba06860121f55d56a68058ca47"
 dependencies = [
  "build-helper",
 ]

@@ -66,9 +66,11 @@ async function loadConfig() {
   for (const [id, key] of Object.entries(FIELDS)) $(id).value = c[key];
   $("quality").value = c.quality;
   $("mic-gain-db").value = c.micGainDb;
+  $("desktop-gain-db").value = c.desktopGainDb;
   $("timer-overlay").checked = !!c.timerOverlay;
   updateQualityLabel();
   updateMicGainLabel();
+  updateDesktopGainLabel();
 }
 
 function updateQualityLabel() {
@@ -83,6 +85,12 @@ function updateMicGainLabel() {
   $("mic-gain-val").textContent = g === 0 ? "off (as captured)" : `${g > 0 ? "+" : ""}${g} dB`;
 }
 $("mic-gain-db").addEventListener("input", updateMicGainLabel);
+
+function updateDesktopGainLabel() {
+  const g = +$("desktop-gain-db").value;
+  $("desktop-gain-val").textContent = g === 0 ? "as captured (may clip)" : `${g > 0 ? "+" : ""}${g} dB`;
+}
+$("desktop-gain-db").addEventListener("input", updateDesktopGainLabel);
 
 async function refreshGameRes() {
   const r = await invoke("get_wow_resolution");
@@ -100,6 +108,7 @@ async function saveConfig() {
   c.abandonTimeoutSecs = +$("abandon-timeout-secs").value;
   c.audioMode = $("audio-mode").value;
   c.micGainDb = +$("mic-gain-db").value;
+  c.desktopGainDb = +$("desktop-gain-db").value;
   c.timerOverlay = $("timer-overlay").checked;
   await invoke("set_config", { config: c });
   const saved = $("saved");

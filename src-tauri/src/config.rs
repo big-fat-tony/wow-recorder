@@ -26,6 +26,10 @@ pub struct Config {
     /// headset mics usually land well below the voices coming out of the
     /// desktop. Ignored when the mic isn't recorded.
     pub mic_gain_db: f32,
+    /// Desktop level in dB, applied only when the microphone is mixed into the
+    /// same track. Windows hands out a desktop mix that already sits at full
+    /// scale, so without a pad the sum overflows and is clamped — crackle.
+    pub desktop_gain_db: f32,
     /// Seconds to keep recording after `CHALLENGE_MODE_END` (loot/scoreboard).
     pub stop_delay_secs: u64,
     /// Give up on a run whose combat log has stopped growing for this long and
@@ -51,6 +55,7 @@ impl Default for Config {
             output_mode: "1080p".into(),
             audio_mode: "desktop".into(),
             mic_gain_db: 0.0,
+            desktop_gain_db: -6.0,
             stop_delay_secs: 5,
             abandon_timeout_secs: 180,
             timer_overlay: true,
@@ -105,6 +110,15 @@ impl Config {
         match self.abandon_timeout_secs {
             0 => std::time::Duration::ZERO,
             secs => std::time::Duration::from_secs(secs.max(60)),
+        }
+    }
+
+    /// Desktop level in dB for a track shared with the microphone; `0.0` when
+    /// the desktop has the track to itself and needs no headroom.
+    pub fn desktop_gain(&self) -> f32 {
+        match self.audio_mode.as_str() {
+            "tracks" | "desktop_mic" => self.desktop_gain_db.clamp(-20.0, 10.0),
+            _ => 0.0,
         }
     }
 
