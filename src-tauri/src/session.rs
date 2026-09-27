@@ -341,16 +341,28 @@ impl Controller {
     /// WoW (or the app) went away. The footage is worth the same either way —
     /// only the outcome is unknown.
     pub fn abandon(&mut self, reason: &'static str) {
+        self.abandon_reporting(reason, &|_| {});
+    }
+
+    /// Abandon, telling `progress` what is being waited on. Quitting the app
+    /// blocks on the file being closed, and a person watching a frozen window
+    /// deserves to know which part of it is taking the time.
+    pub fn abandon_reporting(&mut self, reason: &'static str, progress: &dyn Fn(&str)) {
         if self.active.is_some() {
             log::info!("run abandoned ({reason}); keeping the recording");
-            self.finish(None, reason);
+            self.finish_reporting(None, reason, progress);
         }
     }
 
     /// Finalize the active recording: stop the capture, write the chapters into
     /// the MP4 and the metadata sidecar next to it.
     fn finish(&mut self, end: Option<ChallengeEnd>, ended_by: &str) {
+        self.finish_reporting(end, ended_by, &|_| {});
+    }
+
+    fn finish_reporting(&mut self, end: Option<ChallengeEnd>, ended_by: &str, progress: &dyn Fn(&str)) {
         let Some(active) = self.active.take() else { return };
+        progress("Stopping the capture");
         self.wow_gone_since = None;
         self.last_idle_check = None;
         self.log_progress = None;
@@ -384,6 +396,7 @@ impl Controller {
             challenge_start_video_offset_ms,
             markers: active.markers.clone(),
         };
+        progress("Saving the run details");
         let meta_path = self.config.output_dir().join(format!("{}.json", active.stem));
         match serde_json::to_vec_pretty(&meta) {
             Ok(bytes) => {
@@ -404,16 +417,20 @@ impl Controller {
         // quitting cannot, or the app would exit out from under the file.
         let video = active.video_path.clone();
         let markers = active.markers.clone();
-        let add_chapters = move || {
+        let add_chapters = move |progress: &dyn Fn(&str)| {
             if let Some(finalizing) = finalizing {
+                progress("Closing the video file");
                 finalizing.wait();
+            }
+            if !markers.is_empty() {
+                progress("Writing chapters into the video");
             }
             write_chapters(&video, &markers);
         };
         if ended_by == "app_quit" {
-            add_chapters();
+            add_chapters(progress);
         } else {
-            std::thread::spawn(add_chapters);
+            std::thread::spawn(move || add_chapters(&|_| {}));
         }
     }
 }

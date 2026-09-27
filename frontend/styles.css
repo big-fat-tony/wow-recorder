@@ -164,3 +164,35 @@ select {
 select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(243,183,60,0.12); }
 input[type="range"] { width: 100%; accent-color: var(--accent); height: 22px; }
 .field.toggle { flex-direction: row; align-items: center; justify-content: space-between; }
+
+/* Shutdown overlay */
+#shutdown-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.62); backdrop-filter: blur(3px);
+}
+#shutdown-overlay[hidden] { display: none !important; }
+.shutdown-card {
+  width: min(460px, calc(100vw - 40px));
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  padding: 22px; box-shadow: 0 18px 50px rgba(0,0,0,0.5);
+}
+.shutdown-head { display: flex; align-items: center; gap: 12px; }
+.shutdown-head h2 { margin: 0; font-size: 17px; }
+.spinner {
+  width: 18px; height: 18px; flex: none; border-radius: 50%;
+  border: 2px solid var(--border); border-top-color: var(--accent);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.shutdown-stage { margin: 14px 0 4px; font-size: 14px; }
+.shutdown-note, .shutdown-warning { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.shutdown-actions { margin-top: 16px; }
+.shutdown-warning {
+  margin-top: 14px; padding: 12px; border-radius: 10px;
+  border: 1px solid var(--rec); background: rgba(229,83,63,0.1); color: var(--text);
+}
+.shutdown-warning[hidden] { display: none !important; }
+.shutdown-warning button { margin-top: 10px; }
+button.danger { border-color: var(--rec); color: var(--rec); }
+button.danger:hover { background: rgba(229,83,63,0.14); }

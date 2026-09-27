@@ -175,3 +175,22 @@ refresh();
 refreshGameRes();
 setInterval(refresh, 2000);
 setInterval(refreshGameRes, 3000);
+
+// --- Quitting ---------------------------------------------------------------
+// Quitting mid-run waits for the video file to be closed. Say what is being
+// waited on rather than freezing, and keep an escape hatch for a machine that
+// needs its resources back right now.
+listen("shutdown-progress", ({ payload }) => {
+  if (!payload || payload.stage === null || payload.stage === undefined) {
+    $("shutdown-stage").textContent = "Done — quitting…";
+    return;
+  }
+  $("shutdown-overlay").hidden = false;
+  $("shutdown-stage").textContent = `${payload.stage}…`;
+});
+
+$("force-quit").addEventListener("click", () => {
+  $("force-quit-warning").hidden = false;
+  $("force-quit").hidden = true;
+});
+$("force-quit-confirm").addEventListener("click", () => invoke("force_quit"));

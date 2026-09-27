@@ -148,6 +148,25 @@
     </div>
   </main>
 
+  <div id="shutdown-overlay" hidden>
+    <div class="shutdown-card">
+      <div class="shutdown-head">
+        <span class="spinner"></span>
+        <h2>Finishing the recording</h2>
+      </div>
+      <p id="shutdown-stage" class="shutdown-stage">Stopping the capture…</p>
+      <p class="shutdown-note">Closing a large video takes a few seconds. The app quits by itself when it is done.</p>
+      <div class="shutdown-actions">
+        <button id="force-quit" class="danger small">⚠ Quit now anyway</button>
+      </div>
+      <p id="force-quit-warning" class="shutdown-warning" hidden>
+        Quitting now kills the capture, freeing the GPU and memory immediately. The recording in progress is left
+        unfinished — it will likely not play, and its death chapters will be missing. Runs you already finished are safe.
+        <button id="force-quit-confirm" class="danger small">Yes, quit now</button>
+      </p>
+    </div>
+  </div>
+
   <script src="main.js"></script>
 </body>
 </html>

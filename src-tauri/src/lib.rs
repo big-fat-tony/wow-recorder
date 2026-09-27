@@ -28,6 +28,13 @@ struct UpdateAvailable {
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ShutdownProgress {
+    /// What is being waited on, or `null` once there is nothing left.
+    stage: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct DownloadProgress {
     downloaded: u64,
     total: Option<u64>,
@@ -137,6 +144,57 @@ fn stop_recording(state: State<AppState>) -> bool {
     recording
 }
 
+/// Quit, finishing the recording first if one is running.
+///
+/// Closing a multi-gigabyte MP4 takes a few seconds, and a window that simply
+/// freezes for them is indistinguishable from one that has hung — so the window
+/// comes back, says what it is waiting on, and offers the way out below.
+#[tauri::command]
+fn quit_app(app: AppHandle, state: State<AppState>) {
+    let recording = state.controller.lock().map(|c| c.is_recording()).unwrap_or(false);
+    if !recording {
+        app.exit(0);
+        return;
+    }
+    show_main_window(&app);
+    let controller = state.controller.clone();
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        let report = |stage: &str| {
+            log::info!("shutting down: {stage}");
+            let _ = handle.emit("shutdown-progress", ShutdownProgress { stage: Some(stage.into()) });
+        };
+        report("Stopping the capture");
+        if let Ok(mut ctrl) = controller.lock() {
+            ctrl.abandon_reporting("app_quit", &report);
+        }
+        let _ = handle.emit("shutdown-progress", ShutdownProgress { stage: None });
+        handle.exit(0);
+    });
+}
+
+/// Quit now and damn the consequences, for when the machine is struggling and
+/// the resources matter more than the recording. The capture process is killed
+/// rather than orphaned — leaving it running would defeat the whole point —
+/// which leaves the video file unfinished.
+#[tauri::command]
+fn force_quit(app: AppHandle) {
+    log::warn!("force quit: killing the capture process, the current recording will be unfinished");
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/IM", "extprocess_recorder.exe", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+    // Not app.exit(): that runs the exit handler, which waits for the very
+    // recording this is meant to walk away from.
+    let _ = app;
+    std::process::exit(1);
+}
+
 #[tauri::command]
 fn get_autostart(app: AppHandle) -> bool {
     use tauri_plugin_autostart::ManagerExt;
@@ -228,7 +286,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                     log::info!("stop requested from the tray, but nothing is recording");
                 }
             }
-            "quit" => app.exit(0),
+            "quit" => quit_app(app.clone(), app.state::<AppState>()),
             _ => {}
         })
         .build(app)?;
@@ -325,6 +383,8 @@ pub fn run() {
             detect_log_directory,
             get_wow_resolution,
             stop_recording,
+            quit_app,
+            force_quit,
             get_autostart,
             set_autostart,
             install_update,
