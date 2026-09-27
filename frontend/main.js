@@ -68,6 +68,13 @@ async function loadConfig() {
   $("mic-gain-db").value = c.micGainDb;
   $("desktop-gain-db").value = c.desktopGainDb;
   $("timer-overlay").checked = !!c.timerOverlay;
+  $("cover-chat").checked = !!c.coverChat;
+  const [cx, cy, cw, ch] = c.coverRectPct || [1, 75, 21, 21];
+  $("cover-x").value = cx;
+  $("cover-y").value = cy;
+  $("cover-w").value = cw;
+  $("cover-h").value = ch;
+  updateCoverFields();
   updateQualityLabel();
   updateMicGainLabel();
   updateDesktopGainLabel();
@@ -92,6 +99,11 @@ function updateDesktopGainLabel() {
 }
 $("desktop-gain-db").addEventListener("input", updateDesktopGainLabel);
 
+function updateCoverFields() {
+  $("cover-rect").hidden = !$("cover-chat").checked;
+}
+$("cover-chat").addEventListener("change", updateCoverFields);
+
 async function refreshGameRes() {
   const r = await invoke("get_wow_resolution");
   $("game-res").textContent = r ? `${r.width} × ${r.height}` : "WoW not running";
@@ -110,6 +122,8 @@ async function saveConfig() {
   c.micGainDb = +$("mic-gain-db").value;
   c.desktopGainDb = +$("desktop-gain-db").value;
   c.timerOverlay = $("timer-overlay").checked;
+  c.coverChat = $("cover-chat").checked;
+  c.coverRectPct = [+$("cover-x").value, +$("cover-y").value, +$("cover-w").value, +$("cover-h").value];
   await invoke("set_config", { config: c });
   const saved = $("saved");
   saved.classList.add("show");

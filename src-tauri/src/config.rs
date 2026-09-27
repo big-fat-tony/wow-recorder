@@ -30,6 +30,14 @@ pub struct Config {
     /// same track. Windows hands out a desktop mix that already sits at full
     /// scale, so without a pad the sum overflows and is clamped — crackle.
     pub desktop_gain_db: f32,
+    /// Paint a black box over the chat, so whispers, party chat and other
+    /// people's names do not end up in footage that gets shared. Burned in, so
+    /// it is off unless asked for.
+    pub cover_chat: bool,
+    /// Where that box goes, as percentages of the frame: x, y, width, height.
+    /// The defaults match retail's chat in its default place, measured from a
+    /// 2560x1440 recording.
+    pub cover_rect_pct: [f32; 4],
     /// Seconds to keep recording after `CHALLENGE_MODE_END` (loot/scoreboard).
     pub stop_delay_secs: u64,
     /// Give up on a run whose combat log has stopped growing for this long and
@@ -56,6 +64,8 @@ impl Default for Config {
             audio_mode: "desktop".into(),
             mic_gain_db: 0.0,
             desktop_gain_db: -6.0,
+            cover_chat: false,
+            cover_rect_pct: [1.0, 75.0, 21.0, 21.0],
             stop_delay_secs: 5,
             abandon_timeout_secs: 180,
             timer_overlay: true,
@@ -111,6 +121,13 @@ impl Config {
             0 => std::time::Duration::ZERO,
             secs => std::time::Duration::from_secs(secs.max(60)),
         }
+    }
+
+    /// The chat cover as fractions of the frame, or `None` when it is off or
+    /// has been given nothing to cover.
+    pub fn cover(&self) -> Option<(f32, f32, f32, f32)> {
+        let [x, y, w, h] = self.cover_rect_pct;
+        (self.cover_chat && w > 0.0 && h > 0.0).then(|| (x / 100.0, y / 100.0, w / 100.0, h / 100.0))
     }
 
     /// Desktop level in dB for a track shared with the microphone; `0.0` when

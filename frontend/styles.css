@@ -196,3 +196,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent); height: 22px; }
 .shutdown-warning button { margin-top: 10px; }
 button.danger { border-color: var(--rec); color: var(--rec); }
 button.danger:hover { background: rgba(229,83,63,0.14); }
+
+.grid-4 { grid-template-columns: repeat(4, 1fr); margin-top: 10px; }
+.grid-4 label { font-size: 12px; }
+#cover-rect[hidden] { display: none !important; }

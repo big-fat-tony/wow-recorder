@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use libobs_recorder::settings::{
-    AudioSource, Corner, Framerate, RateControl, RecorderSettings, Resolution, TextOverlay, Window,
+    AudioSource, Corner, Cover, Framerate, RateControl, RecorderSettings, Resolution, TextOverlay, Window,
 };
 use crate::config::FALLBACK_RESOLUTION;
 use crate::window::detect_wow_resolution;
@@ -135,6 +135,9 @@ impl Recorder for ObsRecorder {
         }
         settings.set_microphone_gain_db(config.mic_gain());
         settings.set_desktop_gain_db(config.desktop_gain());
+        if let Some((x, y, w, h)) = config.cover() {
+            settings.set_cover(Cover::new(x, y, w, h));
+        }
         if let Some(text) = overlay_text {
             let font_size = ((output_res.1 as f64 * OVERLAY_FONT_SCALE).round() as u32).max(12);
             settings.set_text_overlay(TextOverlay::new(text, font_size, Corner::TopLeft));
@@ -255,14 +258,23 @@ mod tests {
             .unwrap_or(Config::default().desktop_gain_db);
         let out = std::env::temp_dir().join(format!("wow-recorder-smoke-{audio_mode}.mp4"));
         let _ = std::fs::remove_file(&out);
-        let cfg = Config { output_mode: "raw".into(), audio_mode, mic_gain_db, desktop_gain_db, ..Config::default() };
+        let cover_chat = std::env::var("WOW_RECORDER_SMOKE_COVER").is_ok();
+        let cfg = Config {
+            output_mode: "raw".into(),
+            audio_mode,
+            mic_gain_db,
+            desktop_gain_db,
+            cover_chat,
+            ..Config::default()
+        };
         let mut rec = ObsRecorder::new().expect("OBS runtime next to the test exe");
         rec.start(&out, &cfg, Some("0:00")).unwrap();
         for i in 1..=secs {
             std::thread::sleep(std::time::Duration::from_secs(1));
             rec.set_overlay_text(&format!("{}:{:02}", i / 60, i % 60)).unwrap();
         }
-        rec.stop().unwrap();
+        // The file is closed on another thread now; wait for it before looking.
+        rec.stop().unwrap().wait();
         assert!(out.is_file(), "no output at {}", out.display());
         println!("wrote {}", out.display());
     }
