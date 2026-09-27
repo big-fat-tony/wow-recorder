@@ -354,10 +354,16 @@ impl Controller {
         self.wow_gone_since = None;
         self.last_idle_check = None;
         self.log_progress = None;
-        if let Err(e) = self.recorder.stop() {
-            log::error!("failed to stop recording: {e}");
-        }
-        write_chapters(&active.video_path, &active.markers);
+        // The capture hands back the game's hook here; the muxer closing the
+        // file runs on its own from now on, so the next key can start recording
+        // without waiting for it.
+        let finalizing = match self.recorder.stop() {
+            Ok(finalizing) => Some(finalizing),
+            Err(e) => {
+                log::error!("failed to stop recording: {e}");
+                None
+            }
+        };
         let challenge_start_video_offset_ms =
             active.challenge_started.map(|c| (c - active.capture_started).num_milliseconds());
         let meta = RecordingMetadata {
@@ -393,6 +399,22 @@ impl Controller {
             None => "abandoned",
         };
         log::info!("recording finished: {} ({outcome}), {}", active.start.zone, meta_path.display());
+
+        // Chapters go into the MP4 itself, so they have to wait for the muxer;
+        // quitting cannot, or the app would exit out from under the file.
+        let video = active.video_path.clone();
+        let markers = active.markers.clone();
+        let add_chapters = move || {
+            if let Some(finalizing) = finalizing {
+                finalizing.wait();
+            }
+            write_chapters(&video, &markers);
+        };
+        if ended_by == "app_quit" {
+            add_chapters();
+        } else {
+            std::thread::spawn(add_chapters);
+        }
     }
 }
 

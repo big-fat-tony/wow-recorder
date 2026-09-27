@@ -6,7 +6,6 @@
 //! runtime is missing (and in tests).
 
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
 
 use libobs_recorder::settings::{
     AudioSource, Corner, Framerate, RateControl, RecorderSettings, Resolution, TextOverlay, Window,
@@ -42,8 +41,10 @@ pub trait Recorder: Send {
     fn start(&mut self, output: &Path, config: &Config, overlay_text: Option<&str>) -> Result<()>;
     /// Replace the overlay text while recording.
     fn set_overlay_text(&mut self, text: &str) -> Result<()>;
-    /// Stop the current capture and finalize the file.
-    fn stop(&mut self) -> Result<()>;
+    /// Give up the game's graphics hook and stop capturing. Returns a handle to
+    /// the slow half — the muxer closing the file, the capture process exiting
+    /// — which nothing but reading that file has to wait for.
+    fn stop(&mut self) -> Result<Finalizing>;
     /// A short name for logging.
     fn backend_name(&self) -> &'static str;
 }
@@ -55,40 +56,43 @@ fn extprocess_path() -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
+/// A recording that has let go of the game but is still being written: the
+/// muxer closing the file, the capture process exiting. The next recording does
+/// not wait for any of it; only reading the finished file does.
+pub struct Finalizing {
+    join: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Finalizing {
+    /// Nothing left to do (the noop backend, or a stop that failed outright).
+    fn done() -> Self {
+        Self { join: None }
+    }
+
+    fn spawn(work: impl FnOnce() + Send + 'static) -> Self {
+        Self { join: Some(std::thread::spawn(work)) }
+    }
+
+    /// Block until the file is closed and safe to read or rewrite.
+    pub fn wait(self) {
+        if let Some(join) = self.join {
+            let _ = join.join();
+        }
+    }
+}
+
 /// libobs-recorder backend. A fresh inner recorder is created per run (as in
 /// league_record) and shut down when the run stops.
 pub struct ObsRecorder {
     extprocess: PathBuf,
     current: Option<ObsInner>,
-    /// When the last capture was torn down, for [`HOOK_SETTLE`].
-    stopped_at: Option<Instant>,
 }
-
-/// How long to let WoW's graphics hook notice that the last capture is gone.
-///
-/// Back-to-back keys stop one capture and start the next within a second, and a
-/// hook still bound to the process that just died answers the new one's
-/// handshake with silence: it logs "existing hook found", never reaches
-/// "shared texture capture successful", and records a black screen for the
-/// whole run.
-const HOOK_SETTLE: Duration = Duration::from_secs(5);
 
 impl ObsRecorder {
     pub fn new() -> Result<Self> {
         let extprocess = extprocess_path()
             .ok_or_else(|| Error::Backend("extprocess_recorder.exe not found next to the app".into()))?;
-        Ok(Self { extprocess, current: None, stopped_at: None })
-    }
-
-    /// Block until the previous capture has been gone for [`HOOK_SETTLE`].
-    fn wait_for_hook_to_settle(&self) {
-        let Some(stopped) = self.stopped_at else { return };
-        let elapsed = stopped.elapsed();
-        if elapsed < HOOK_SETTLE {
-            let wait = HOOK_SETTLE - elapsed;
-            log::info!("waiting {:.1}s for the previous capture's hook to clear", wait.as_secs_f32());
-            std::thread::sleep(wait);
-        }
+        Ok(Self { extprocess, current: None })
     }
 }
 
@@ -100,7 +104,6 @@ impl Recorder for ObsRecorder {
         if self.current.is_some() {
             return Err(Error::Busy);
         }
-        self.wait_for_hook_to_settle();
         let input = detect_wow_resolution().unwrap_or(FALLBACK_RESOLUTION);
         let output_res = config.output_resolution(input);
         log::info!("capture input {input:?} -> output {output_res:?}, cqp {}", config.cqp());
@@ -156,15 +159,19 @@ impl Recorder for ObsRecorder {
         recorder.set_overlay_text(text).map_err(|e| Error::Backend(format!("overlay: {e:?}")))
     }
 
-    fn stop(&mut self) -> Result<()> {
-        let recorder = self.current.take().ok_or(Error::Idle)?;
-        let mut recorder = recorder;
-        let stopped = recorder.stop_recording();
-        let shutdown = recorder.shutdown();
-        self.stopped_at = Some(Instant::now());
-        log::info!("OBS stop: stop={stopped:?} shutdown={shutdown:?}");
-        stopped.map_err(|e| Error::Backend(format!("stop: {e:?}")))?;
-        Ok(())
+    fn stop(&mut self) -> Result<Finalizing> {
+        let mut recorder = self.current.take().ok_or(Error::Idle)?;
+        // Hand the hook back before anything else. Only one capture client can
+        // hold a game's hook, so this is the whole of what the next recording
+        // is waiting for — the file it leaves behind is not its problem.
+        if let Err(e) = recorder.release_capture() {
+            log::warn!("could not release the capture hook: {e:?}");
+        }
+        Ok(Finalizing::spawn(move || {
+            let stopped = recorder.stop_recording();
+            let shutdown = recorder.shutdown();
+            log::info!("OBS stop: stop={stopped:?} shutdown={shutdown:?}");
+        }))
     }
 
     fn backend_name(&self) -> &'static str {
@@ -195,12 +202,12 @@ impl Recorder for NoopRecorder {
         Ok(())
     }
 
-    fn stop(&mut self) -> Result<()> {
+    fn stop(&mut self) -> Result<Finalizing> {
         if !self.running {
             return Err(Error::Idle);
         }
         self.running = false;
-        Ok(())
+        Ok(Finalizing::done())
     }
 
     fn backend_name(&self) -> &'static str {
