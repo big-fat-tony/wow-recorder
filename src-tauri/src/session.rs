@@ -59,6 +59,9 @@ pub struct RecordingMetadata {
 
 struct Active {
     start: ChallengeStart,
+    /// Started by hand to check the settings, not by a key. It gets no metadata
+    /// sidecar: it is not a run, and nothing downstream should treat it as one.
+    test: bool,
     /// Local time of `CHALLENGE_MODE_START` per the log (run clock zero).
     challenge_started: Option<NaiveDateTime>,
     /// Local time the capture began — video t=0.
@@ -126,6 +129,11 @@ impl Controller {
         self.active.is_some()
     }
 
+    /// Is what is being recorded a test rather than a key?
+    pub fn is_test(&self) -> bool {
+        self.active.as_ref().is_some_and(|a| a.test)
+    }
+
     pub fn backend_name(&self) -> &'static str {
         self.recorder.backend_name()
     }
@@ -179,19 +187,49 @@ impl Controller {
         (1000 - ms) as u64
     }
 
+    /// Record until told to stop, so the overlay, the chat cover and the audio
+    /// tracks can be looked at without waiting for a key. Answers whether it
+    /// started.
+    pub fn start_test(&mut self) -> bool {
+        if self.active.is_some() {
+            log::warn!("test recording asked for while already recording; ignoring");
+            return false;
+        }
+        self.begin(
+            ChallengeStart {
+                zone: "Test".into(),
+                instance_id: None,
+                challenge_id: None,
+                keystone_level: None,
+                affixes: Vec::new(),
+                log_timestamp: String::new(),
+            },
+            true,
+        );
+        self.active.is_some()
+    }
+
     fn on_start(&mut self, start: ChallengeStart) {
         if self.active.is_some() {
             log::warn!("CHALLENGE_MODE_START while already recording; ignoring");
             return;
         }
+        self.begin(start, false);
+    }
+
+    fn begin(&mut self, start: ChallengeStart, test: bool) {
         let now = Local::now();
         let level = start.keystone_level.unwrap_or(0);
-        let stem = format!(
-            "{}_{}_+{}",
-            now.format("%Y-%m-%d_%H-%M-%S"),
-            sanitize(&start.zone),
-            level
-        );
+        let stem = if test {
+            format!("{}_Test", now.format("%Y-%m-%d_%H-%M-%S"))
+        } else {
+            format!(
+                "{}_{}_+{}",
+                now.format("%Y-%m-%d_%H-%M-%S"),
+                sanitize(&start.zone),
+                level
+            )
+        };
         let out_dir = self.config.output_dir();
         if let Err(e) = std::fs::create_dir_all(&out_dir) {
             log::error!("cannot create output dir {}: {e}", out_dir.display());
@@ -204,7 +242,9 @@ impl Controller {
             Ok(()) => {
                 // Capture is live now (OBS took a moment to start); this is video t=0.
                 let capture_started = Local::now().naive_local();
-                let challenge_started = parse_log_timestamp(&start.log_timestamp, capture_started);
+                // A test has no key behind it, so its clock starts with the capture.
+                let challenge_started =
+                    if test { Some(capture_started) } else { parse_log_timestamp(&start.log_timestamp, capture_started) };
                 if challenge_started.is_none() {
                     log::warn!("unparseable start timestamp {:?}; markers will be unsynced", start.log_timestamp);
                 }
@@ -220,6 +260,7 @@ impl Controller {
                 );
                 self.active = Some(Active {
                     start,
+                    test,
                     challenge_started,
                     capture_started,
                     started_at: Local::now().to_rfc3339(),
@@ -396,6 +437,16 @@ impl Controller {
             challenge_start_video_offset_ms,
             markers: active.markers.clone(),
         };
+        if active.test {
+            progress("Closing the video file");
+            let video = active.video_path.clone();
+            if let Some(finalizing) = finalizing {
+                finalizing.wait();
+            }
+            log::info!("test recording finished: {}", video.display());
+            return;
+        }
+
         progress("Saving the run details");
         let meta_path = self.config.output_dir().join(format!("{}.json", active.stem));
         match serde_json::to_vec_pretty(&meta) {
@@ -542,6 +593,56 @@ mod tests {
         // A fresh log file is progress, not silence.
         let rolled = PathBuf::from("WoWCombatLog-092526_191100.txt");
         assert!(!ctrl.note_log_progress(rolled, 0, quiet_since + timeout, timeout));
+    }
+
+    /// A test recording is for looking at, not for keeping records about: it
+    /// must not leave a sidecar that tools would read as a run.
+    #[test]
+    fn a_test_recording_leaves_no_metadata_behind() {
+        let cfg = tmp_config_in("testrec");
+        let out = cfg.output_dir();
+        let mut ctrl = Controller::new(Box::new(NoopRecorder::default()), cfg);
+
+        assert!(ctrl.start_test(), "should have started");
+        assert!(ctrl.is_recording() && ctrl.is_test());
+        assert!(!ctrl.start_test(), "a second one must not start on top of the first");
+        let stem = ctrl.active.as_ref().unwrap().stem.clone();
+        assert!(stem.ends_with("_Test"), "named as a test, got {stem}");
+        // Its clock runs from zero, so the overlay can be read.
+        assert!(ctrl.active.as_ref().unwrap().challenge_started.is_some());
+
+        ctrl.abandon("stopped_by_hand");
+        assert!(!ctrl.is_recording() && !ctrl.is_test());
+        let leftovers: Vec<_> = std::fs::read_dir(&out)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|e| e == "json").unwrap_or(false))
+            .collect();
+        assert!(leftovers.is_empty(), "a test wrote metadata: {leftovers:?}");
+        std::fs::remove_dir_all(&out).ok();
+    }
+
+    /// A key must still be recorded properly after a test has been taken.
+    #[test]
+    fn a_key_after_a_test_is_a_normal_run() {
+        let cfg = tmp_config_in("testthenrun");
+        let out = cfg.output_dir();
+        let mut ctrl = Controller::new(Box::new(NoopRecorder::default()), cfg);
+        assert!(ctrl.start_test());
+        ctrl.abandon("stopped_by_hand");
+
+        ctrl.handle(LogEvent::ChallengeStart(start_of("Ruby Life Pools", 2521)));
+        assert!(ctrl.is_recording() && !ctrl.is_test());
+        ctrl.handle(LogEvent::LoggingRestarted);
+        let json: Vec<_> = std::fs::read_dir(&out)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().map(|e| e == "json").unwrap_or(false))
+            .collect();
+        assert_eq!(json.len(), 1, "exactly the run should have metadata: {json:?}");
+        std::fs::remove_dir_all(&out).ok();
     }
 
     /// Leaving and re-entering writes a fresh logging header, and the zone

@@ -25,6 +25,8 @@ Runs in the system tray and stays out of the way.
   below the voices coming out of the desktop
 - ✅ Optional cover over the chat window, so whispers, party chat and other
   people's names stay out of footage that gets shared
+- ✅ Test recording on demand, to see what the settings do to the picture and
+  the sound without waiting for a key
 - ✅ Abandoned keys are kept: WoW logs no end event for one, so the recording is
   closed when the dungeon is left, WoW exits, the combat log goes quiet, or the
   app is told to quit — or on demand, from the window or the tray

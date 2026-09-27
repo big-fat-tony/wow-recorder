@@ -24,13 +24,17 @@ async function refresh() {
   $("rec-dot").className = "rec-dot" + (rec ? " live" : "");
   $("status-badge").className = "status-badge" + (rec ? " rec" : "");
   $("status-badge").textContent = rec ? "🔴" : "🎬";
-  $("status-title").textContent = rec ? "Recording" : "Idle";
+  $("status-title").textContent = rec ? (s.testing ? "Test recording" : "Recording") : "Idle";
   $("status-sub").textContent = rec
-    ? "A Mythic+ run is being captured."
+    ? s.testing
+      ? "Recording until you stop it — check the overlay, the chat cover and the audio tracks."
+      : "A Mythic+ run is being captured."
     : s.watching
     ? "Waiting for a Mythic+ to start…"
     : "Not watching — set a Logs directory below.";
   $("stop-recording").hidden = !rec;
+  // A key can start at any moment, so only offer a test while nothing is live.
+  $("test-recording").hidden = rec;
 }
 
 // Abandoned a key and still standing in the dungeon? Nothing in the combat log
@@ -201,6 +205,21 @@ listen("shutdown-progress", ({ payload }) => {
   }
   $("shutdown-overlay").hidden = false;
   $("shutdown-stage").textContent = `${payload.stage}…`;
+});
+
+// Record a few seconds on demand, to see what the settings do to the picture
+// and the sound without waiting for a key. It writes no metadata sidecar.
+$("test-recording").addEventListener("click", async () => {
+  const button = $("test-recording");
+  button.disabled = true;
+  try {
+    if (!(await invoke("start_test_recording"))) return;
+  } finally {
+    setTimeout(() => {
+      button.disabled = false;
+      refresh();
+    }, 800);
+  }
 });
 
 $("force-quit").addEventListener("click", () => {

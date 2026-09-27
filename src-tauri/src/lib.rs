@@ -102,6 +102,8 @@ fn start_overlay_ticker(controller: Arc<Mutex<Controller>>) {
 struct Status {
     watching: bool,
     recording: bool,
+    /// The recording in progress was started by hand, not by a key.
+    testing: bool,
     log_directory: String,
     output_directory: String,
     backend: String,
@@ -111,18 +113,27 @@ struct Status {
 #[tauri::command]
 fn get_status(state: State<AppState>) -> Status {
     let config = state.config.lock().unwrap().clone();
-    let (recording, backend) = {
+    let (recording, testing, backend) = {
         let ctrl = state.controller.lock().unwrap();
-        (ctrl.is_recording(), ctrl.backend_name().to_string())
+        (ctrl.is_recording(), ctrl.is_test(), ctrl.backend_name().to_string())
     };
     Status {
         watching: state.watching.load(Ordering::Relaxed),
         recording,
+        testing,
         log_directory: config.log_directory.clone(),
         output_directory: config.output_directory.clone(),
         backend,
         version: env!("CARGO_PKG_VERSION").to_string(),
     }
+}
+
+/// Record until stopped, for looking at what the settings actually do — where
+/// the chat cover lands, whether the overlay reads right, what is on each audio
+/// track — without waiting for a key. Answers whether it started.
+#[tauri::command]
+fn start_test_recording(state: State<AppState>) -> bool {
+    state.controller.lock().map(|mut c| c.start_test()).unwrap_or(false)
 }
 
 /// End the run being recorded right now and keep the footage — for a key given
@@ -383,6 +394,7 @@ pub fn run() {
             detect_log_directory,
             get_wow_resolution,
             stop_recording,
+            start_test_recording,
             quit_app,
             force_quit,
             get_autostart,
