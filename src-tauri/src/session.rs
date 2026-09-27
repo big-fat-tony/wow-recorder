@@ -135,6 +135,10 @@ impl Controller {
             LogEvent::ChallengeStart(start) => self.on_start(start),
             LogEvent::ChallengeEnd(end) => self.on_end(end),
             LogEvent::ZoneChange(zone) => self.on_zone_change(zone),
+            LogEvent::LoggingRestarted => {
+                // Only meaningful mid-run: the key being recorded was left.
+                self.abandon("logging_restarted");
+            }
             LogEvent::UnitDied(died) => self.on_death(died),
         }
     }
@@ -317,6 +321,14 @@ impl Controller {
             log::warn!("CHALLENGE_MODE_END with no active recording; ignoring");
             return;
         }
+        // A zeroed end is not an outcome: WoW writes one for the key a new key
+        // replaces, so it marks a run that was given up on. There is no
+        // scoreboard coming, and the next run is about to start — do not sit
+        // through the tail delay holding the capture open.
+        if end.is_discarded_key() {
+            self.abandon("key_discarded");
+            return;
+        }
         // Optional tail so the loot/scoreboard is captured.
         let delay = self.config.stop_delay_secs;
         if delay > 0 {
@@ -491,6 +503,74 @@ mod tests {
         // A fresh log file is progress, not silence.
         let rolled = PathBuf::from("WoWCombatLog-092526_191100.txt");
         assert!(!ctrl.note_log_progress(rolled, 0, quiet_since + timeout, timeout));
+    }
+
+    /// Leaving and re-entering writes a fresh logging header, and the zone
+    /// change that follows names the same instance as the run being recorded —
+    /// the new instance of a dungeon is indistinguishable from a sub-area of
+    /// the old one, so the header is the only thing that gives the exit away.
+    #[test]
+    fn re_entering_the_dungeon_ends_the_run() {
+        let cfg = tmp_config_in("relog");
+        let out = cfg.output_dir();
+        let mut ctrl = Controller::new(Box::new(NoopRecorder::default()), cfg);
+        ctrl.handle(LogEvent::ChallengeStart(start_of("Ruby Life Pools", 2521)));
+        ctrl.handle(LogEvent::LoggingRestarted);
+        assert!(!ctrl.is_recording());
+
+        let files: Vec<_> = std::fs::read_dir(&out).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        let json = files.iter().find(|p| p.extension().map(|e| e == "json").unwrap_or(false)).expect("metadata json");
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(json).unwrap()).unwrap();
+        assert_eq!(v["endedBy"], "logging_restarted");
+        assert!(v["success"].is_null());
+        std::fs::remove_dir_all(&out).ok();
+    }
+
+    /// The zeroed end that a new key writes for the key it replaces is a
+    /// discard, not a result: no outcome, and no scoreboard worth waiting for.
+    #[test]
+    fn a_zeroed_end_is_an_abandoned_key_not_a_depleted_one() {
+        let cfg = tmp_config_in("discard");
+        let out = cfg.output_dir();
+        let mut ctrl = Controller::new(Box::new(NoopRecorder::default()), cfg);
+        ctrl.handle(LogEvent::ChallengeStart(start_of("Ruby Life Pools", 2521)));
+        ctrl.handle(LogEvent::ChallengeEnd(ChallengeEnd {
+            instance_id: Some(2521),
+            success: false,
+            keystone_level: Some(0),
+            duration_ms: Some(0),
+            log_timestamp: "9/26 23:49:35.596".into(),
+        }));
+        assert!(!ctrl.is_recording());
+
+        let files: Vec<_> = std::fs::read_dir(&out).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        let json = files.iter().find(|p| p.extension().map(|e| e == "json").unwrap_or(false)).expect("metadata json");
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(json).unwrap()).unwrap();
+        assert_eq!(v["endedBy"], "key_discarded");
+        assert!(v["success"].is_null(), "a discarded key was never depleted");
+        std::fs::remove_dir_all(&out).ok();
+    }
+
+    /// A real depleted key keeps its result.
+    #[test]
+    fn a_depleted_key_keeps_its_outcome() {
+        let cfg = tmp_config_in("depleted");
+        let out = cfg.output_dir();
+        let mut ctrl = Controller::new(Box::new(NoopRecorder::default()), cfg);
+        ctrl.handle(LogEvent::ChallengeStart(start_of("Ruby Life Pools", 2521)));
+        ctrl.handle(LogEvent::ChallengeEnd(ChallengeEnd {
+            instance_id: Some(2521),
+            success: false,
+            keystone_level: Some(17),
+            duration_ms: Some(2_100_000),
+            log_timestamp: "9/26 23:49:35.596".into(),
+        }));
+        let files: Vec<_> = std::fs::read_dir(&out).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).collect();
+        let json = files.iter().find(|p| p.extension().map(|e| e == "json").unwrap_or(false)).expect("metadata json");
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(json).unwrap()).unwrap();
+        assert_eq!(v["endedBy"], "challenge_mode_end");
+        assert_eq!(v["success"], false);
+        std::fs::remove_dir_all(&out).ok();
     }
 
     /// Sub-areas inside the dungeon share its instance id and must not stop it.

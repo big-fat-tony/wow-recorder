@@ -6,6 +6,7 @@
 //! runtime is missing (and in tests).
 
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use libobs_recorder::settings::{
     AudioSource, Corner, Framerate, RateControl, RecorderSettings, Resolution, TextOverlay, Window,
@@ -59,13 +60,35 @@ fn extprocess_path() -> Option<PathBuf> {
 pub struct ObsRecorder {
     extprocess: PathBuf,
     current: Option<ObsInner>,
+    /// When the last capture was torn down, for [`HOOK_SETTLE`].
+    stopped_at: Option<Instant>,
 }
+
+/// How long to let WoW's graphics hook notice that the last capture is gone.
+///
+/// Back-to-back keys stop one capture and start the next within a second, and a
+/// hook still bound to the process that just died answers the new one's
+/// handshake with silence: it logs "existing hook found", never reaches
+/// "shared texture capture successful", and records a black screen for the
+/// whole run.
+const HOOK_SETTLE: Duration = Duration::from_secs(5);
 
 impl ObsRecorder {
     pub fn new() -> Result<Self> {
         let extprocess = extprocess_path()
             .ok_or_else(|| Error::Backend("extprocess_recorder.exe not found next to the app".into()))?;
-        Ok(Self { extprocess, current: None })
+        Ok(Self { extprocess, current: None, stopped_at: None })
+    }
+
+    /// Block until the previous capture has been gone for [`HOOK_SETTLE`].
+    fn wait_for_hook_to_settle(&self) {
+        let Some(stopped) = self.stopped_at else { return };
+        let elapsed = stopped.elapsed();
+        if elapsed < HOOK_SETTLE {
+            let wait = HOOK_SETTLE - elapsed;
+            log::info!("waiting {:.1}s for the previous capture's hook to clear", wait.as_secs_f32());
+            std::thread::sleep(wait);
+        }
     }
 }
 
@@ -77,6 +100,7 @@ impl Recorder for ObsRecorder {
         if self.current.is_some() {
             return Err(Error::Busy);
         }
+        self.wait_for_hook_to_settle();
         let input = detect_wow_resolution().unwrap_or(FALLBACK_RESOLUTION);
         let output_res = config.output_resolution(input);
         log::info!("capture input {input:?} -> output {output_res:?}, cqp {}", config.cqp());
@@ -137,6 +161,7 @@ impl Recorder for ObsRecorder {
         let mut recorder = recorder;
         let stopped = recorder.stop_recording();
         let shutdown = recorder.shutdown();
+        self.stopped_at = Some(Instant::now());
         log::info!("OBS stop: stop={stopped:?} shutdown={shutdown:?}");
         stopped.map_err(|e| Error::Backend(format!("stop: {e:?}")))?;
         Ok(())

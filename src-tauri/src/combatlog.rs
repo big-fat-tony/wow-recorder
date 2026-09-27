@@ -56,6 +56,14 @@ pub struct ZoneChange {
     pub log_timestamp: String,
 }
 
+impl ChallengeEnd {
+    /// Is this the zeroed end WoW writes for the key a new one replaces, rather
+    /// than a real result? Such a line carries no level and no duration.
+    pub fn is_discarded_key(&self) -> bool {
+        !self.success && self.duration_ms.unwrap_or(0) == 0 && self.keystone_level.unwrap_or(0) == 0
+    }
+}
+
 /// A player died (feign death excluded).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +80,9 @@ pub enum LogEvent {
     ChallengeStart(ChallengeStart),
     ChallengeEnd(ChallengeEnd),
     ZoneChange(ZoneChange),
+    /// A fresh `COMBAT_LOG_VERSION` header: combat logging was switched on.
+    /// Mid-run that means the player left the instance and entered one again.
+    LoggingRestarted,
     UnitDied(UnitDied),
 }
 
@@ -152,7 +163,11 @@ fn parse_affixes(s: &str) -> Vec<i64> {
 
 /// Parse one line into a Mythic+ event, if it is one.
 pub fn parse_line(line: &str) -> Option<LogEvent> {
-    if !line.contains("CHALLENGE_MODE_") && !line.contains("UNIT_DIED") && !line.contains("ZONE_CHANGE") {
+    if !line.contains("CHALLENGE_MODE_")
+        && !line.contains("UNIT_DIED")
+        && !line.contains("ZONE_CHANGE")
+        && !line.contains("COMBAT_LOG_VERSION")
+    {
         return None;
     }
     // `<timestamp>  <EVENT,args...>` — two spaces separate the timestamp.
@@ -184,6 +199,11 @@ pub fn parse_line(line: &str) -> Option<LogEvent> {
                 log_timestamp,
             }))
         }
+        // Auto-logging (the Warcraft Logs uploader) switches combat logging on
+        // when an instance is entered and off on the way out, so a fresh header
+        // in the middle of a run means the player left and came back — into a
+        // new instance of the same dungeon, which no zone change distinguishes.
+        "COMBAT_LOG_VERSION" => Some(LogEvent::LoggingRestarted),
         "ZONE_CHANGE" => {
             // instanceID, "zone", difficultyID
             Some(LogEvent::ZoneChange(ZoneChange {
@@ -382,6 +402,26 @@ mod tests {
                 assert_eq!(z.zone, "Ruby Life Pools");
             }
             _ => panic!("expected zone change"),
+        }
+    }
+
+    #[test]
+    fn parses_logging_restarted() {
+        let line = "9/26/2026 23:48:06.349  COMBAT_LOG_VERSION,22,ADVANCED_LOG_ENABLED,1,BUILD_VERSION,12.1.0,PROJECT_ID,1";
+        assert!(matches!(parse_line(line), Some(LogEvent::LoggingRestarted)));
+    }
+
+    #[test]
+    fn tells_a_discarded_key_from_a_depleted_one() {
+        let discarded = "9/26/2026 23:49:35.596  CHALLENGE_MODE_END,2521,0,0,0,0.000000,0.000000";
+        let depleted = "9/14 20:34:51.900  CHALLENGE_MODE_END,2648,0,10,2400000";
+        match parse_line(discarded).unwrap() {
+            LogEvent::ChallengeEnd(e) => assert!(e.is_discarded_key()),
+            _ => panic!("expected end"),
+        }
+        match parse_line(depleted).unwrap() {
+            LogEvent::ChallengeEnd(e) => assert!(!e.is_discarded_key()),
+            _ => panic!("expected end"),
         }
     }
 
