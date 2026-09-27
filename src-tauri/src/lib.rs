@@ -59,6 +59,7 @@ fn start_watcher(state: &AppState, log_dir: PathBuf) {
         *slot = stop.clone();
     }
     let controller = state.controller.clone();
+    let progress_controller = state.controller.clone();
     let watching = state.watching.clone();
     let my_stop = stop;
 
@@ -73,6 +74,11 @@ fn start_watcher(state: &AppState, log_dir: PathBuf) {
             |event| {
                 if let Ok(mut ctrl) = controller.lock() {
                     ctrl.handle(event);
+                }
+            },
+            || {
+                if let Ok(mut ctrl) = progress_controller.lock() {
+                    ctrl.note_log_activity();
                 }
             },
             || my_stop.load(Ordering::Relaxed),

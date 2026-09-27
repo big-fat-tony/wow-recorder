@@ -257,23 +257,18 @@ pub fn newest_log(dir: &Path, pattern: &Regex) -> Option<PathBuf> {
         .max_by_key(|p| modified_ms(p))
 }
 
-/// The log WoW is currently filling and how long it is, or `None` when there is
-/// no recent log to look at. Callers watch the length for progress: the
-/// modification time is no use here, because Windows leaves it stale for as
-/// long as the writer holds the file open (the same reason Explorer shows a
-/// recording still being muxed as 0 KB). The length keeps up.
-pub fn current_log_size(dir: &Path) -> Option<(PathBuf, u64)> {
-    let pattern = Regex::new(LOG_FILE_PATTERN).expect("valid pattern");
-    let newest = newest_log(dir, &pattern)?;
-    let len = std::fs::metadata(&newest).ok()?.len();
-    Some((newest, len))
-}
-
-/// Tail the newest combat log in `dir`, invoking `on_event` for each Mythic+
-/// event, until `stop` returns true. Blocking; run on a dedicated task.
-pub fn tail<F, S>(dir: &Path, mut on_event: F, mut stop: S) -> io::Result<()>
+/// Tail the newest combat log in `dir` until `stop` returns true, invoking
+/// `on_event` for each Mythic+ event and `on_progress` whenever WoW has written
+/// anything at all. Blocking; run on a dedicated task.
+///
+/// Nothing here trusts what the filesystem says about the file's size: Windows
+/// leaves both that and the modification time stale while the writer holds it
+/// open. Reading to the end is the only honest answer, so that is what every
+/// poll does, and `on_progress` reports what it found.
+pub fn tail<F, P, S>(dir: &Path, mut on_event: F, mut on_progress: P, mut stop: S) -> io::Result<()>
 where
     F: FnMut(LogEvent),
+    P: FnMut(),
     S: FnMut() -> bool,
 {
     let pattern = Regex::new(LOG_FILE_PATTERN).expect("valid pattern");
@@ -300,8 +295,10 @@ where
             if len < position {
                 position = 0; // truncated/rotated
             }
-            if len > position {
-                position = read_new_lines(path, position, &mut on_event)?;
+            let advanced = read_new_lines(path, position, &mut on_event)?;
+            if advanced > position {
+                position = advanced;
+                on_progress();
             }
         }
 

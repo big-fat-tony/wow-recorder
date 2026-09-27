@@ -40,8 +40,8 @@ pub struct Config {
     pub cover_rect_pct: [f32; 4],
     /// Seconds to keep recording after `CHALLENGE_MODE_END` (loot/scoreboard).
     pub stop_delay_secs: u64,
-    /// Give up on a run whose combat log has stopped growing for this long and
-    /// keep what was recorded — an abandoned key is never ended in the log.
+    /// Give up on a run whose combat log has not been written to for this long
+    /// and keep what was recorded — an abandoned key is never ended in the log.
     /// With auto-logging (the Warcraft Logs uploader and friends) this is the
     /// *only* signal that a key was left: logging is switched off on the way
     /// out, so no zone change is ever written. A key being played writes to the
@@ -67,7 +67,7 @@ impl Default for Config {
             cover_chat: false,
             cover_rect_pct: [1.0, 75.0, 21.0, 21.0],
             stop_delay_secs: 5,
-            abandon_timeout_secs: 180,
+            abandon_timeout_secs: 600,
             timer_overlay: true,
         }
     }

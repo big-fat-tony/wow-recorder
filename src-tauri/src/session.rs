@@ -97,28 +97,19 @@ pub struct Controller {
     /// Since when the WoW window has been missing, for the grace period before
     /// a closed game counts as an abandoned key.
     wow_gone_since: Option<Instant>,
-    /// The combat log being written and its length, with the time that length
-    /// last changed — a log that stops growing means nobody is playing.
-    log_progress: Option<LogProgress>,
-    /// Throttles the combat-log check in [`Self::tick`].
-    last_idle_check: Option<Instant>,
-}
-
-struct LogProgress {
-    path: PathBuf,
-    size: u64,
-    changed: Instant,
+    /// When the combat-log watcher last read anything WoW had written. A log
+    /// nobody is writing to means a key nobody is playing.
+    log_activity: Option<Instant>,
 }
 
 /// How long the WoW window has to stay missing before the run counts as
 /// abandoned — long enough to ride out a crash-to-desktop-and-relaunch race.
 const WOW_GONE_GRACE: Duration = Duration::from_secs(15);
-/// How often [`Self::tick`] stats the combat log to see whether it went quiet.
-const IDLE_CHECK_INTERVAL: Duration = Duration::from_secs(5);
+
 
 impl Controller {
     pub fn new(recorder: Box<dyn Recorder>, config: Config) -> Self {
-        Self { recorder, config, active: None, wow_gone_since: None, log_progress: None, last_idle_check: None }
+        Self { recorder, config, active: None, wow_gone_since: None, log_activity: None }
     }
 
     pub fn set_config(&mut self, config: Config) {
@@ -157,8 +148,7 @@ impl Controller {
     pub fn tick(&mut self) {
         if self.active.is_none() {
             self.wow_gone_since = None;
-            self.last_idle_check = None;
-            self.log_progress = None;
+            self.log_activity = None;
             return;
         }
         if let Some(reason) = self.abandon_reason() {
@@ -258,6 +248,7 @@ impl Controller {
                         challenge_started.map(|c| (capture_started - c).num_milliseconds()).unwrap_or(0)
                     )
                 );
+                self.log_activity = Some(Instant::now());
                 self.active = Some(Active {
                     start,
                     test,
@@ -292,31 +283,18 @@ impl Controller {
         if timeout.is_zero() {
             return None;
         }
-        if !self.last_idle_check.is_none_or(|t| t.elapsed() >= IDLE_CHECK_INTERVAL) {
+        let quiet = self.log_activity?.elapsed();
+        if quiet < timeout {
             return None;
         }
-        self.last_idle_check = Some(Instant::now());
-        let (path, size) = crate::combatlog::current_log_size(&PathBuf::from(&self.config.log_directory))?;
-        self.note_log_progress(path, size, Instant::now(), timeout).then_some("log_idle")
+        log::info!("combat log has not been written to for {}s", quiet.as_secs());
+        Some("log_idle")
     }
 
-    /// Record how far the combat log has been written and answer whether it has
-    /// stood still for `timeout`. A log that rolls over to a new file counts as
-    /// progress, not silence.
-    fn note_log_progress(&mut self, path: PathBuf, size: u64, now: Instant, timeout: Duration) -> bool {
-        match &mut self.log_progress {
-            Some(p) if p.path == path && p.size == size => now.duration_since(p.changed) >= timeout,
-            Some(p) => {
-                p.path = path;
-                p.size = size;
-                p.changed = now;
-                false
-            }
-            None => {
-                self.log_progress = Some(LogProgress { path, size, changed: now });
-                false
-            }
-        }
+    /// The watcher read something WoW had written: the log is alive, and so is
+    /// whatever is being recorded.
+    pub fn note_log_activity(&mut self) {
+        self.log_activity = Some(Instant::now());
     }
 
     fn on_zone_change(&mut self, zone: ZoneChange) {
@@ -405,8 +383,7 @@ impl Controller {
         let Some(active) = self.active.take() else { return };
         progress("Stopping the capture");
         self.wow_gone_since = None;
-        self.last_idle_check = None;
-        self.log_progress = None;
+        self.log_activity = None;
         // The capture hands back the game's hook here; the muxer closing the
         // file runs on its own from now on, so the next key can start recording
         // without waiting for it.
@@ -569,30 +546,32 @@ mod tests {
         std::fs::remove_dir_all(&out).ok();
     }
 
-    /// A key that is being played writes to the combat log constantly, and that
-    /// must never be mistaken for silence — an earlier version watched the
-    /// file's modification time, which Windows leaves stale while WoW holds the
-    /// log open, and cut a live key three minutes in.
+    /// A key being played is a log being written to, and the watcher reading
+    /// it is the only honest evidence of that. An earlier version asked the
+    /// filesystem for the log's size instead and cut a timed +17 three minutes
+    /// in: Windows leaves that number stale while WoW holds the file open, and
+    /// unlike the watcher — which reads to the true end of the file — the check
+    /// had nothing to correct it with.
     #[test]
-    fn a_growing_combat_log_never_counts_as_idle() {
-        let timeout = Duration::from_secs(180);
-        let log = PathBuf::from("WoWCombatLog-092526_184255.txt");
-        let mut ctrl = Controller::new(Box::new(NoopRecorder::default()), tmp_config_in("idle"));
-        let t0 = Instant::now();
+    fn a_log_being_written_to_never_counts_as_idle() {
+        let cfg = tmp_config_in("idle");
+        let timeout = cfg.abandon_timeout();
+        let mut ctrl = Controller::new(Box::new(NoopRecorder::default()), cfg);
+        ctrl.handle(LogEvent::ChallengeStart(start_of("Ruby Life Pools", 2521)));
+        assert!(ctrl.abandon_reason().is_none(), "a run that just started is not idle");
 
-        assert!(!ctrl.note_log_progress(log.clone(), 1_000, t0, timeout));
-        // Still being written to, half an hour later: the run is alive.
-        for (minutes, size) in [(5, 2_000_000), (17, 40_000_000), (30, 97_130_581)] {
-            let now = t0 + Duration::from_secs(minutes * 60);
-            assert!(!ctrl.note_log_progress(log.clone(), size, now, timeout), "cut at {minutes} min");
+        // Half an hour of play, each read arriving just under the timeout.
+        for minute in 0..10 {
+            ctrl.log_activity = Instant::now().checked_sub(timeout - Duration::from_secs(1));
+            assert!(ctrl.abandon_reason().is_none(), "cut at minute {minute}");
+            ctrl.note_log_activity();
+            assert!(ctrl.abandon_reason().is_none());
         }
-        let quiet_since = t0 + Duration::from_secs(30 * 60);
-        // Stuck at the same length: idle, but only once the timeout has passed.
-        assert!(!ctrl.note_log_progress(log.clone(), 97_130_581, quiet_since + timeout / 2, timeout));
-        assert!(ctrl.note_log_progress(log.clone(), 97_130_581, quiet_since + timeout, timeout));
-        // A fresh log file is progress, not silence.
-        let rolled = PathBuf::from("WoWCombatLog-092526_191100.txt");
-        assert!(!ctrl.note_log_progress(rolled, 0, quiet_since + timeout, timeout));
+
+        // Nothing read for longer than the timeout: nobody is playing it.
+        ctrl.log_activity = Instant::now().checked_sub(timeout + Duration::from_secs(1));
+        assert_eq!(ctrl.abandon_reason(), Some("log_idle"));
+        std::fs::remove_dir_all(ctrl.config.output_dir()).ok();
     }
 
     /// A test recording is for looking at, not for keeping records about: it
