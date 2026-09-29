@@ -22,13 +22,17 @@ pub struct Config {
     /// Audio capture: "off" | "desktop" (no mic) | "desktop_mic" | "game" |
     /// "tracks" (two streams: 1 = the game, 2 = desktop + microphone).
     pub audio_mode: String,
-    /// Microphone boost in dB, applied before the mic is mixed into its track —
-    /// headset mics usually land well below the voices coming out of the
-    /// desktop. Ignored when the mic isn't recorded.
+    /// Microphone level in dB, applied before the mic is mixed into its track.
+    /// It sits above the desktop by default, because a headset lands well below
+    /// the voices coming out of Discord — but below full scale, because a track
+    /// carrying both of them has to have room for the pair. Ignored when the
+    /// mic isn't recorded.
     pub mic_gain_db: f32,
     /// Desktop level in dB, applied only when the microphone is mixed into the
     /// same track. Windows hands out a desktop mix that already sits at full
-    /// scale, so without a pad the sum overflows and is clamped — crackle.
+    /// scale, so without a pad the sum overflows and is clamped — crackle. The
+    /// microphone is padded too: whichever of the two is loud at the moment,
+    /// the pair needs room, and -6 dB of it was not enough.
     pub desktop_gain_db: f32,
     /// Paint a black box over the chat, so whispers, party chat and other
     /// people's names do not end up in footage that gets shared. Burned in, so
@@ -62,8 +66,8 @@ impl Default for Config {
             quality: 70,
             output_mode: "1080p".into(),
             audio_mode: "desktop".into(),
-            mic_gain_db: 0.0,
-            desktop_gain_db: -6.0,
+            mic_gain_db: -6.0,
+            desktop_gain_db: -12.0,
             cover_chat: false,
             cover_rect_pct: [1.0, 75.0, 21.0, 21.0],
             stop_delay_secs: 5,

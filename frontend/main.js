@@ -93,7 +93,7 @@ $("quality").addEventListener("input", updateQualityLabel);
 
 function updateMicGainLabel() {
   const g = +$("mic-gain-db").value;
-  $("mic-gain-val").textContent = g === 0 ? "off (as captured)" : `${g > 0 ? "+" : ""}${g} dB`;
+  $("mic-gain-val").textContent = g === 0 ? "as captured" : `${g > 0 ? "+" : ""}${g} dB`;
 }
 $("mic-gain-db").addEventListener("input", updateMicGainLabel);
 
