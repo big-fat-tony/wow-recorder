@@ -43,7 +43,30 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "WoW Recorder ${{ github.ref_name }}"
           releaseBody: |
-            Lightweight WoW Mythic+ recorder for Windows (x64). OBS runtime bundled.
-            Auto-updates from this repo's releases.
+            Lightweight WoW Mythic+ recorder for Windows (x64). The OBS runtime
+            is bundled, so there is nothing else to install, and the app
+            auto-updates from this repo's releases.
+
+            **Setting it up**
+
+            1. Download and run `WoW.Recorder_*_x64-setup.exe`. Windows may warn
+               about an unknown publisher (the installer isn't code-signed) —
+               "More info" → "Run anyway".
+            2. In WoW, turn on **advanced combat logging** in the network
+               options, and start logging with `/combatlog` each session (or let
+               an addon such as the Warcraft Logs client do it). This is what
+               emits the Mythic+ start/end events — without it, nothing records.
+            3. Open the app. It auto-detects your WoW `Logs` folder; check the
+               path it found and set where recordings should go (defaults to
+               `Videos\WoW Recorder`). The "Watching combat logs" row turns
+               on once it is happy.
+            4. With WoW running, press **Test recording**, give it a few
+               seconds, then **Stop & save** — that shows what the picture and the
+               sound settings actually do, without waiting for a key.
+            5. Leave it in the tray; keys are recorded on their own. "Start
+               automatically when I log in to Windows" keeps it that way across
+               reboots.
+
+            Recordings stay on your own machine; nothing is uploaded.
           releaseDraft: false
           prerelease: false
